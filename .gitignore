@@ -1,0 +1,23 @@
+# PyCharm
+.idea/
+
+# Python cache
+__pycache__/
+*.py[cod]
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Testing and type-checking caches
+.pytest_cache/
+.mypy_cache/
+
+# Generated numerical results
+outputs/
+results/
+
+# Temporary files
+*.tmp
+*.log
