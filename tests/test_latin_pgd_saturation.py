@@ -79,7 +79,7 @@ class TestPGDSaturation(unittest.TestCase):
             decision.stopping_tolerance,
         )
 
-    def test_increasing_indicator_is_not_accepted(self) -> None:
+    def test_increasing_indicator_requests_enrichment(self) -> None:
         decision = decide_pgd_saturation(
             previous_indicator=0.1,
             current_indicator=0.12,
@@ -88,8 +88,11 @@ class TestPGDSaturation(unittest.TestCase):
         self.assertLess(decision.value, 0.0)
         self.assertEqual(
             decision.action,
-            SaturationAction.STOP_SATURATED,
+            SaturationAction.ENRICH_BASIS,
         )
+        self.assertFalse(decision.should_advance_latin)
+        self.assertTrue(decision.should_enrich_basis)
+        self.assertFalse(decision.should_stop)
 
 
 if __name__ == "__main__":

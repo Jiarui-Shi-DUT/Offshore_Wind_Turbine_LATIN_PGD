@@ -17,9 +17,13 @@ where xi is the relative LATIN indicator.  Three cases are distinguished:
    the LATIN error reduction has become insufficient, so a new space-time
    PGD pair should be added;
 
-3. zeta <= zeta_stop:
+3. 0 <= zeta <= zeta_stop:
    the LATIN indicator is considered saturated and the outer algorithm may
    stop because further basis updates are no longer effective.
+
+A negative zeta means that the current reduced approximation has increased
+the LATIN indicator.  This is not convergence saturation: the PGD basis is
+still insufficient and must be enriched.
 
 For the one-dimensional bar example, the paper uses zeta_enrich = 0.1 and
 zeta_stop = 1.0e-4.
@@ -127,8 +131,9 @@ def decide_pgd_saturation(
     """
     Select the adaptive PGD action associated with the saturation parameter.
 
-    The stopping test has priority over enrichment.  Therefore a nearly zero
-    improvement terminates the iteration instead of repeatedly adding modes.
+    A negative saturation value requests enrichment because the reduced
+    approximation has worsened the LATIN indicator.  The stopping threshold
+    applies only to a small non-negative improvement.
     """
     enrichment = float(enrichment_tolerance)
     stopping = float(stopping_tolerance)
@@ -152,7 +157,9 @@ def decide_pgd_saturation(
         current_indicator=current_indicator,
     )
 
-    if value <= stopping:
+    if value < 0.0:
+        action = SaturationAction.ENRICH_BASIS
+    elif value <= stopping:
         action = SaturationAction.STOP_SATURATED
     elif value <= enrichment:
         action = SaturationAction.ENRICH_BASIS
