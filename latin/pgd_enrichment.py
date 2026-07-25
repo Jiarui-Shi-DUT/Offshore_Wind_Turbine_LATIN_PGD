@@ -148,6 +148,26 @@ def _trapezoidal_weights(time: FloatArray) -> FloatArray:
     return weights
 
 
+def _weighted_space_time_inner_product(
+    first: FloatArray,
+    second: FloatArray,
+    time: FloatArray,
+    directions: DescentSearchDirections,
+    element_volumes: FloatArray,
+) -> float:
+    """Evaluate the H_sigma^{-1}-weighted space-time inner product."""
+    density = first * second / directions.H_sigma
+    space_integral = density @ element_volumes
+    value = float(np.trapz(space_integral, x=time))
+
+    if not np.isfinite(value):
+        raise FloatingPointError(
+            "The PGD weighted inner product is non-finite."
+        )
+
+    return value
+
+
 def _weighted_space_time_norm(
     field: FloatArray,
     time: FloatArray,
@@ -593,6 +613,48 @@ def enrich_pgd_basis_once(
         rcond=rcond,
     )
     final_mode = final_time_result.basis.modes[0]
+
+    # The sequential backward-Euler temporal update does not minimise the
+    # complete space-time residual in one coupled solve.  Apply one scalar
+    # line search to the separated correction.  Because zero scaling is
+    # admissible, this step guarantees that an accepted mode cannot increase
+    # the weighted residual norm.
+    mode_correction = (
+        final_mode.plastic_strain_rate_correction()
+        - directions.H_sigma
+        * final_mode.stress_correction()
+    )
+    correction_norm_squared = _weighted_space_time_inner_product(
+        first=mode_correction,
+        second=mode_correction,
+        time=time_array,
+        directions=directions,
+        element_volumes=element_volumes,
+    )
+
+    numerical_zero = float(np.finfo(np.float64).eps)
+    if correction_norm_squared <= numerical_zero:
+        optimal_scale = 0.0
+    else:
+        optimal_scale = -(
+            _weighted_space_time_inner_product(
+                first=residual_array,
+                second=mode_correction,
+                time=time_array,
+                directions=directions,
+                element_volumes=element_volumes,
+            )
+            / correction_norm_squared
+        )
+
+    if not np.isfinite(optimal_scale):
+        raise FloatingPointError(
+            "The PGD enrichment line-search scale is non-finite."
+        )
+
+    final_mode.temporal_amplitude *= optimal_scale
+    final_mode.temporal_rate *= optimal_scale
+
     final_residual = _mode_correction_residual(
         residual=residual_array,
         mode=final_mode,
