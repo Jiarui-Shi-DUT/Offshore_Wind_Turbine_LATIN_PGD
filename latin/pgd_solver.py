@@ -613,6 +613,26 @@ def solve_latin_pgd(
                     ),
                 )
 
+            # The saturation rule may request another PGD mode even
+            # though the current reduced global problem is already solved
+            # to the prescribed reduced tolerance. In that situation no
+            # non-zero residual remains from which a useful mode can be
+            # generated. Accept the current candidate and continue with the
+            # next nonlinear LATIN iteration instead of reporting a false
+            # enrichment failure.
+            if (
+                global_stage_result.relative_residual
+                <= reduced_tolerance
+            ):
+                global_state = candidate_state
+                completed_iterations += 1
+                indicator_values.append(current_indicator)
+                modes_added_values.append(
+                    enrichments_this_iteration
+                )
+                previous_indicator = current_indicator
+                break
+
             if (
                 enrichments_this_iteration
                 >= max_enrichments_per_iteration
