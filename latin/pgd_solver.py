@@ -5,17 +5,19 @@ Adaptive outer solver for the one-dimensional LATIN-PGD algorithm.
 For every LATIN iteration, the solver performs:
 
 1. nonlinear local stage;
-2. evaluation of the current LATIN distance;
-3. PGD global stage using the existing spatial basis;
-4. relaxation of the global candidate;
-5. evaluation of the relative LATIN indicator;
-6. saturation decision;
-7. residual-driven basis enrichment when required.
+2. PGD global stage using the current spatial basis;
+3. relaxation of the global candidate;
+4. evaluation of the relative LATIN indicator xi_(i+1);
+5. evaluation of the saturation parameter
 
-The saturation parameter is evaluated against the LATIN indicator before the
-current global correction.  During one LATIN iteration this reference value
-is kept fixed while new PGD pairs are added, matching the hybrid update /
-enrichment loop of the reference algorithm.
+       zeta = (xi_i - xi_(i+1)) / (xi_i + xi_(i+1));
+
+6. acceptance of the global state or enrichment of the PGD basis.
+
+The reference indicator xi_i is the indicator accepted at the preceding
+LATIN iteration.  It is kept fixed while additional PGD pairs are generated
+inside the current global stage.  For the first iteration, xi_0 is initialised
+to 1.0, which is the natural normalised reference value.
 """
 
 from __future__ import annotations
@@ -63,7 +65,7 @@ class PGDTerminationReason(Enum):
 
 @dataclass(frozen=True)
 class PGDLatinResult:
-    """Final state, reduced basis and complete adaptive convergence history."""
+    """Final state, reduced basis and adaptive convergence history."""
 
     state: LatinState
     local_state: LatinState
@@ -88,7 +90,7 @@ class PGDLatinResult:
 
     @property
     def final_indicator(self) -> float:
-        """Return the last available relative LATIN indicator."""
+        """Return the last accepted relative LATIN indicator."""
         if self.indicator_history.size > 0:
             return float(self.indicator_history[-1])
         return float(self.baseline_indicator_history[-1])
@@ -105,6 +107,7 @@ def _validate_solver_inputs(
     area: float,
     materials: Sequence[MaterialParameters],
     initial_basis: Optional[PGDBasis1D],
+    initial_indicator: float,
     tolerance: float,
     max_iterations: int,
     relaxation: float,
@@ -119,13 +122,13 @@ def _validate_solver_inputs(
     acceptance_tolerance: float,
     rcond: float,
 ) -> None:
-    """Validate the discretisation and all adaptive control parameters."""
+    """Validate the discretisation and adaptive control parameters."""
     if area <= 0.0:
         raise ValueError("area must be positive.")
     if initial_state.n_elements != mesh.n_elements:
         raise ValueError(
-            "initial_state and mesh must contain the same number "
-            "of elements."
+            "initial_state and mesh must contain the same "
+            "number of elements."
         )
     if len(materials) != mesh.n_elements:
         raise ValueError(
@@ -139,6 +142,12 @@ def _validate_solver_inputs(
                 "space-time grid."
             )
 
+    if initial_indicator <= 0.0 or not np.isfinite(
+        initial_indicator
+    ):
+        raise ValueError(
+            "initial_indicator must be positive and finite."
+        )
     if tolerance <= 0.0 or not np.isfinite(tolerance):
         raise ValueError("tolerance must be positive and finite.")
     if max_iterations < 1:
@@ -237,7 +246,7 @@ def _build_result(
     saturation_enrichment_tolerance: float,
     saturation_stopping_tolerance: float,
 ) -> PGDLatinResult:
-    """Create an immutable result from the accumulated Python histories."""
+    """Create an immutable result from accumulated Python histories."""
     return PGDLatinResult(
         state=state,
         local_state=local_state,
@@ -327,6 +336,7 @@ def solve_latin_pgd(
     materials: Sequence[MaterialParameters],
     *,
     initial_basis: Optional[PGDBasis1D] = None,
+    initial_indicator: float = 1.0,
     tolerance: float = 1.0e-3,
     max_iterations: int = 50,
     relaxation: float = 0.8,
@@ -342,13 +352,12 @@ def solve_latin_pgd(
     rcond: float = 1.0e-12,
 ) -> PGDLatinResult:
     """
-    Run the adaptive LATIN-PGD iterations over the complete time-space domain.
+    Run adaptive LATIN-PGD iterations over the complete time-space domain.
 
-    Existing PGD modes are reused at the beginning of every global stage.
-    During a given LATIN iteration, the local state and search directions stay
-    fixed while the PGD basis is enriched one mode at a time.  The candidate
-    is accepted when the saturation reduction is sufficient, the LATIN
-    tolerance is reached, or the saturation stopping threshold is reached.
+    ``initial_indicator`` supplies xi_0 before the first LATIN iteration.
+    After an iteration is accepted, its current indicator becomes the
+    reference xi_i for the next iteration.  During basis enrichment inside
+    one global stage, this reference remains unchanged.
     """
     _validate_solver_inputs(
         initial_state=initial_state,
@@ -356,6 +365,7 @@ def solve_latin_pgd(
         area=area,
         materials=materials,
         initial_basis=initial_basis,
+        initial_indicator=initial_indicator,
         tolerance=tolerance,
         max_iterations=max_iterations,
         relaxation=relaxation,
@@ -378,6 +388,7 @@ def solve_latin_pgd(
     )
 
     global_state = initial_state.copy()
+
     if initial_basis is None:
         basis = PGDBasis1D(
             n_elements=initial_state.n_elements,
@@ -395,6 +406,7 @@ def solve_latin_pgd(
     modes_added_values = []
 
     completed_iterations = 0
+    previous_indicator = float(initial_indicator)
     last_local_state = initial_state.copy()
     last_directions: Optional[DescentSearchDirections] = None
 
@@ -410,59 +422,12 @@ def solve_latin_pgd(
         )
         last_local_state = local_state
         last_directions = directions
+        baseline_indicator_values.append(previous_indicator)
 
-        baseline_indicator = relative_latin_indicator(
-            local_state=local_state,
-            global_state=global_state,
-            directions=directions,
-            mesh=mesh,
-            area=area,
-            materials=materials,
-        )
-        if not np.isfinite(baseline_indicator):
-            raise FloatingPointError(
-                "The baseline LATIN indicator became non-finite."
-            )
-        baseline_indicator_values.append(
-            float(baseline_indicator)
-        )
-
-        if baseline_indicator <= tolerance:
-            return _build_result(
-                state=global_state,
-                local_state=last_local_state,
-                directions=last_directions,
-                basis=basis,
-                indicator_values=indicator_values,
-                baseline_indicator_values=(
-                    baseline_indicator_values
-                ),
-                trial_indicator_values=trial_indicator_values,
-                saturation_values=saturation_values,
-                trial_basis_sizes=trial_basis_sizes,
-                trial_reduced_residual_values=(
-                    trial_reduced_residual_values
-                ),
-                modes_added_values=modes_added_values,
-                converged=True,
-                saturated=False,
-                iterations=completed_iterations,
-                termination_reason=(
-                    PGDTerminationReason.CONVERGED
-                ),
-                tolerance=tolerance,
-                relaxation=relaxation,
-                saturation_enrichment_tolerance=(
-                    saturation_enrichment_tolerance
-                ),
-                saturation_stopping_tolerance=(
-                    saturation_stopping_tolerance
-                ),
-            )
-
-        # An empty spatial basis cannot perform a time-only update.  Generate
-        # the first PGD pair before evaluating the saturation decision.
+        # An empty spatial basis cannot perform a time-only update.
+        # Therefore, the first PGD pair is generated before evaluating zeta.
         force_first_pair = basis.n_modes == 0
+
         global_stage_result = solve_pgd_global_stage(
             global_state=global_state,
             local_state=local_state,
@@ -490,14 +455,10 @@ def solve_latin_pgd(
         )
 
         if force_first_pair and enrichments_this_iteration == 0:
-            if last_directions is None:
-                raise RuntimeError(
-                    "Search directions were not initialised."
-                )
             return _build_result(
                 state=global_state,
                 local_state=last_local_state,
-                directions=last_directions,
+                directions=directions,
                 basis=basis,
                 indicator_values=indicator_values,
                 baseline_indicator_values=(
@@ -541,7 +502,7 @@ def solve_latin_pgd(
             )
 
             decision = decide_pgd_saturation(
-                previous_indicator=baseline_indicator,
+                previous_indicator=previous_indicator,
                 current_indicator=current_indicator,
                 enrichment_tolerance=(
                     saturation_enrichment_tolerance
@@ -607,6 +568,7 @@ def solve_latin_pgd(
                 modes_added_values.append(
                     enrichments_this_iteration
                 )
+                previous_indicator = current_indicator
                 break
 
             if decision.should_stop:
