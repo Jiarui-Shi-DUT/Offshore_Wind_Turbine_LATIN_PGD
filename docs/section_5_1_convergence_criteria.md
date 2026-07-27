@@ -72,9 +72,9 @@ $$
 $$
 \begin{cases}
 \zeta_i>0.1,
-& \text{当前 PGD 基底仍有效，推进下一次 LATIN 迭代};\$$2mm]
+& \text{当前 PGD 基底仍有效，推进下一次 LATIN 迭代};\\[2mm]
 10^{-4}<\zeta_i\leq0.1,
-& \text{现有基底改善不足，增加新的 PGD 模态};\$$2mm]
+& \text{现有基底改善不足，增加新的 PGD 模态};\\[2mm]
 0\leq\zeta_i\leq10^{-4},
 & \text{误差改善趋于饱和，停止求解}.
 \end{cases}
@@ -226,9 +226,9 @@ stagnated
 $$
 \begin{cases}
 \zeta_i>0.1,
-& \text{现有基底有效，推进 LATIN 迭代};\$$2mm]
+& \text{现有基底有效，推进 LATIN 迭代};\\[2mm]
 10^{-4}<\zeta_i\leq0.1,
-& \text{尝试增加新的 PGD 模态};\$$2mm]
+& \text{尝试增加新的 PGD 模态};\\[2mm]
 \zeta_i<0,
 & \text{当前更新使误差增大，拒绝或继续增广}.
 \end{cases}
