@@ -424,7 +424,7 @@ r+\alpha c.
 ```math
 \alpha^\ast
 =
-\underset{\alpha}{\operatorname{arg\,min}}
+\mathrm{arg\,min}_{\alpha}
 \left\|
 r+\alpha c
 \right\|_{H_\sigma^{-1}}^2.
