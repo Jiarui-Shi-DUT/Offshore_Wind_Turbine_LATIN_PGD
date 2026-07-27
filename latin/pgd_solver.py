@@ -12,12 +12,16 @@ For every LATIN iteration, the solver performs:
 
        zeta = (xi_i - xi_(i+1)) / (xi_i + xi_(i+1));
 
-6. acceptance of the global state or enrichment of the PGD basis.
+6. acceptance of the global state or enrichment of the PGD basis;
+7. mixed convergence control based on an absolute LATIN tolerance and a
+   persistent stagnation criterion.
 
 The reference indicator xi_i is the indicator accepted at the preceding
-LATIN iteration.  It is kept fixed while additional PGD pairs are generated
-inside the current global stage.  For the first iteration, xi_0 is initialised
-to 1.0, which is the natural normalised reference value.
+LATIN iteration. It is kept fixed while additional PGD pairs are generated
+inside the current global stage. For the first iteration, xi_0 is initialised
+to 1.0, which is the natural normalised reference value. The saturation
+parameter is used only to decide whether the current PGD basis should be
+enriched; it is not the sole stopping condition for the nonlinear solve.
 """
 
 from __future__ import annotations
@@ -57,6 +61,7 @@ class PGDTerminationReason(Enum):
     """Reason for terminating the adaptive LATIN-PGD solver."""
 
     CONVERGED = "converged"
+    STAGNATED = "stagnated"
     SATURATED = "saturated"
     MAX_ITERATIONS = "max_iterations"
     MAX_ENRICHMENTS = "max_enrichments"
@@ -109,6 +114,9 @@ def _validate_solver_inputs(
     initial_basis: Optional[PGDBasis1D],
     initial_indicator: float,
     tolerance: float,
+    stagnation_indicator_threshold: float,
+    stagnation_absolute_tolerance: float,
+    stagnation_required_iterations: int,
     max_iterations: int,
     relaxation: float,
     saturation_enrichment_tolerance: float,
@@ -150,6 +158,28 @@ def _validate_solver_inputs(
         )
     if tolerance <= 0.0 or not np.isfinite(tolerance):
         raise ValueError("tolerance must be positive and finite.")
+    if (
+        stagnation_indicator_threshold <= 0.0
+        or not np.isfinite(stagnation_indicator_threshold)
+    ):
+        raise ValueError(
+            "stagnation_indicator_threshold must be positive and finite."
+        )
+    if tolerance > stagnation_indicator_threshold:
+        raise ValueError(
+            "tolerance must not exceed stagnation_indicator_threshold."
+        )
+    if (
+        stagnation_absolute_tolerance <= 0.0
+        or not np.isfinite(stagnation_absolute_tolerance)
+    ):
+        raise ValueError(
+            "stagnation_absolute_tolerance must be positive and finite."
+        )
+    if stagnation_required_iterations < 1:
+        raise ValueError(
+            "stagnation_required_iterations must be at least one."
+        )
     if max_iterations < 1:
         raise ValueError("max_iterations must be at least one.")
     if not 0.0 < relaxation <= 1.0:
@@ -222,6 +252,23 @@ def _validate_solver_inputs(
         )
     if rcond <= 0.0 or not np.isfinite(rcond):
         raise ValueError("rcond must be positive and finite.")
+
+
+def _updated_stagnation_count(
+    previous_indicator: float,
+    current_indicator: float,
+    current_count: int,
+    indicator_threshold: float,
+    absolute_tolerance: float,
+) -> int:
+    """Update the number of consecutive accepted stagnant iterations."""
+    absolute_change = abs(current_indicator - previous_indicator)
+    if (
+        current_indicator <= indicator_threshold
+        and absolute_change <= absolute_tolerance
+    ):
+        return current_count + 1
+    return 0
 
 
 def _build_result(
@@ -337,7 +384,10 @@ def solve_latin_pgd(
     *,
     initial_basis: Optional[PGDBasis1D] = None,
     initial_indicator: float = 1.0,
-    tolerance: float = 1.0e-3,
+    tolerance: float = 1.0e-4,
+    stagnation_indicator_threshold: float = 1.0e-3,
+    stagnation_absolute_tolerance: float = 1.0e-6,
+    stagnation_required_iterations: int = 3,
     max_iterations: int = 50,
     relaxation: float = 0.8,
     saturation_enrichment_tolerance: float = 0.1,
@@ -356,8 +406,14 @@ def solve_latin_pgd(
 
     ``initial_indicator`` supplies xi_0 before the first LATIN iteration.
     After an iteration is accepted, its current indicator becomes the
-    reference xi_i for the next iteration.  During basis enrichment inside
+    reference xi_i for the next iteration. During basis enrichment inside
     one global stage, this reference remains unchanged.
+
+    The nonlinear solve terminates when either the absolute LATIN indicator
+    is below ``tolerance`` or the accepted indicator is below
+    ``stagnation_indicator_threshold`` and changes by no more than
+    ``stagnation_absolute_tolerance`` for
+    ``stagnation_required_iterations`` consecutive LATIN iterations.
     """
     _validate_solver_inputs(
         initial_state=initial_state,
@@ -367,6 +423,15 @@ def solve_latin_pgd(
         initial_basis=initial_basis,
         initial_indicator=initial_indicator,
         tolerance=tolerance,
+        stagnation_indicator_threshold=(
+            stagnation_indicator_threshold
+        ),
+        stagnation_absolute_tolerance=(
+            stagnation_absolute_tolerance
+        ),
+        stagnation_required_iterations=(
+            stagnation_required_iterations
+        ),
         max_iterations=max_iterations,
         relaxation=relaxation,
         saturation_enrichment_tolerance=(
@@ -407,6 +472,7 @@ def solve_latin_pgd(
 
     completed_iterations = 0
     previous_indicator = float(initial_indicator)
+    stagnation_count = 0
     last_local_state = initial_state.copy()
     last_directions: Optional[DescentSearchDirections] = None
 
@@ -568,50 +634,63 @@ def solve_latin_pgd(
                 modes_added_values.append(
                     enrichments_this_iteration
                 )
+                stagnation_count = _updated_stagnation_count(
+                    previous_indicator=previous_indicator,
+                    current_indicator=current_indicator,
+                    current_count=stagnation_count,
+                    indicator_threshold=(
+                        stagnation_indicator_threshold
+                    ),
+                    absolute_tolerance=(
+                        stagnation_absolute_tolerance
+                    ),
+                )
+
+                if (
+                    stagnation_count
+                    >= stagnation_required_iterations
+                ):
+                    return _build_result(
+                        state=global_state,
+                        local_state=last_local_state,
+                        directions=directions,
+                        basis=basis,
+                        indicator_values=indicator_values,
+                        baseline_indicator_values=(
+                            baseline_indicator_values
+                        ),
+                        trial_indicator_values=(
+                            trial_indicator_values
+                        ),
+                        saturation_values=saturation_values,
+                        trial_basis_sizes=trial_basis_sizes,
+                        trial_reduced_residual_values=(
+                            trial_reduced_residual_values
+                        ),
+                        modes_added_values=modes_added_values,
+                        converged=True,
+                        saturated=False,
+                        iterations=completed_iterations,
+                        termination_reason=(
+                            PGDTerminationReason.STAGNATED
+                        ),
+                        tolerance=tolerance,
+                        relaxation=relaxation,
+                        saturation_enrichment_tolerance=(
+                            saturation_enrichment_tolerance
+                        ),
+                        saturation_stopping_tolerance=(
+                            saturation_stopping_tolerance
+                        ),
+                    )
+
                 previous_indicator = current_indicator
                 break
 
-            if decision.should_stop:
-                global_state = candidate_state
-                completed_iterations += 1
-                indicator_values.append(current_indicator)
-                modes_added_values.append(
-                    enrichments_this_iteration
-                )
-
-                return _build_result(
-                    state=global_state,
-                    local_state=last_local_state,
-                    directions=directions,
-                    basis=basis,
-                    indicator_values=indicator_values,
-                    baseline_indicator_values=(
-                        baseline_indicator_values
-                    ),
-                    trial_indicator_values=(
-                        trial_indicator_values
-                    ),
-                    saturation_values=saturation_values,
-                    trial_basis_sizes=trial_basis_sizes,
-                    trial_reduced_residual_values=(
-                        trial_reduced_residual_values
-                    ),
-                    modes_added_values=modes_added_values,
-                    converged=False,
-                    saturated=True,
-                    iterations=completed_iterations,
-                    termination_reason=(
-                        PGDTerminationReason.SATURATED
-                    ),
-                    tolerance=tolerance,
-                    relaxation=relaxation,
-                    saturation_enrichment_tolerance=(
-                        saturation_enrichment_tolerance
-                    ),
-                    saturation_stopping_tolerance=(
-                        saturation_stopping_tolerance
-                    ),
-                )
+            # A small saturation value no longer terminates the nonlinear
+            # solve by itself. Both ``should_enrich`` and ``should_stop``
+            # request a richer PGD basis unless the reduced problem is
+            # already solved to ``reduced_tolerance``.
 
             # The saturation rule may request another PGD mode even
             # though the current reduced global problem is already solved
@@ -630,6 +709,56 @@ def solve_latin_pgd(
                 modes_added_values.append(
                     enrichments_this_iteration
                 )
+                stagnation_count = _updated_stagnation_count(
+                    previous_indicator=previous_indicator,
+                    current_indicator=current_indicator,
+                    current_count=stagnation_count,
+                    indicator_threshold=(
+                        stagnation_indicator_threshold
+                    ),
+                    absolute_tolerance=(
+                        stagnation_absolute_tolerance
+                    ),
+                )
+
+                if (
+                    stagnation_count
+                    >= stagnation_required_iterations
+                ):
+                    return _build_result(
+                        state=global_state,
+                        local_state=last_local_state,
+                        directions=directions,
+                        basis=basis,
+                        indicator_values=indicator_values,
+                        baseline_indicator_values=(
+                            baseline_indicator_values
+                        ),
+                        trial_indicator_values=(
+                            trial_indicator_values
+                        ),
+                        saturation_values=saturation_values,
+                        trial_basis_sizes=trial_basis_sizes,
+                        trial_reduced_residual_values=(
+                            trial_reduced_residual_values
+                        ),
+                        modes_added_values=modes_added_values,
+                        converged=True,
+                        saturated=False,
+                        iterations=completed_iterations,
+                        termination_reason=(
+                            PGDTerminationReason.STAGNATED
+                        ),
+                        tolerance=tolerance,
+                        relaxation=relaxation,
+                        saturation_enrichment_tolerance=(
+                            saturation_enrichment_tolerance
+                        ),
+                        saturation_stopping_tolerance=(
+                            saturation_stopping_tolerance
+                        ),
+                    )
+
                 previous_indicator = current_indicator
                 break
 
@@ -637,46 +766,68 @@ def solve_latin_pgd(
                 enrichments_this_iteration
                 >= max_enrichments_per_iteration
             ):
+                # This limit applies to the current global stage only.
+                # Accept the best available candidate and continue the
+                # nonlinear LATIN iterations instead of terminating the
+                # complete solve.
                 global_state = candidate_state
                 completed_iterations += 1
                 indicator_values.append(current_indicator)
                 modes_added_values.append(
                     enrichments_this_iteration
                 )
-
-                return _build_result(
-                    state=global_state,
-                    local_state=last_local_state,
-                    directions=directions,
-                    basis=basis,
-                    indicator_values=indicator_values,
-                    baseline_indicator_values=(
-                        baseline_indicator_values
+                stagnation_count = _updated_stagnation_count(
+                    previous_indicator=previous_indicator,
+                    current_indicator=current_indicator,
+                    current_count=stagnation_count,
+                    indicator_threshold=(
+                        stagnation_indicator_threshold
                     ),
-                    trial_indicator_values=(
-                        trial_indicator_values
-                    ),
-                    saturation_values=saturation_values,
-                    trial_basis_sizes=trial_basis_sizes,
-                    trial_reduced_residual_values=(
-                        trial_reduced_residual_values
-                    ),
-                    modes_added_values=modes_added_values,
-                    converged=False,
-                    saturated=False,
-                    iterations=completed_iterations,
-                    termination_reason=(
-                        PGDTerminationReason.MAX_ENRICHMENTS
-                    ),
-                    tolerance=tolerance,
-                    relaxation=relaxation,
-                    saturation_enrichment_tolerance=(
-                        saturation_enrichment_tolerance
-                    ),
-                    saturation_stopping_tolerance=(
-                        saturation_stopping_tolerance
+                    absolute_tolerance=(
+                        stagnation_absolute_tolerance
                     ),
                 )
+
+                if (
+                    stagnation_count
+                    >= stagnation_required_iterations
+                ):
+                    return _build_result(
+                        state=global_state,
+                        local_state=last_local_state,
+                        directions=directions,
+                        basis=basis,
+                        indicator_values=indicator_values,
+                        baseline_indicator_values=(
+                            baseline_indicator_values
+                        ),
+                        trial_indicator_values=(
+                            trial_indicator_values
+                        ),
+                        saturation_values=saturation_values,
+                        trial_basis_sizes=trial_basis_sizes,
+                        trial_reduced_residual_values=(
+                            trial_reduced_residual_values
+                        ),
+                        modes_added_values=modes_added_values,
+                        converged=True,
+                        saturated=False,
+                        iterations=completed_iterations,
+                        termination_reason=(
+                            PGDTerminationReason.STAGNATED
+                        ),
+                        tolerance=tolerance,
+                        relaxation=relaxation,
+                        saturation_enrichment_tolerance=(
+                            saturation_enrichment_tolerance
+                        ),
+                        saturation_stopping_tolerance=(
+                            saturation_stopping_tolerance
+                        ),
+                    )
+
+                previous_indicator = current_indicator
+                break
 
             enriched_result = solve_pgd_global_stage(
                 global_state=global_state,
