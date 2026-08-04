@@ -76,9 +76,7 @@
 
 二维 Euler–Bernoulli 梁节点通常具有三个自由度：
 
-$$
-u,\qquad v,\qquad \theta,
-$$
+$$u,\qquad v,\qquad \theta,$$
 
 其中：
 
@@ -88,21 +86,15 @@ $$
 
 对于 $n_e$ 个两节点梁单元，节点数量为：
 
-$$
-n_n=n_e+1.
-$$
+$$n_n=n_e+1.$$
 
 未施加边界条件前，总自由度为：
 
-$$
-n_{\mathrm{dof}}=3(n_e+1).
-$$
+$$n_{\mathrm{dof}}=3(n_e+1).$$
 
 塔底完全固结后，需要约束三个自由度，因此自由自由度数量为：
 
-$$
-n_{\mathrm{free}}=3n_e.
-$$
+$$n_{\mathrm{free}}=3n_e.$$
 
 ---
 
@@ -110,15 +102,11 @@ $$
 
 塔筒总高度为：
 
-$$
-H=87.6\ \mathrm{m}.
-$$
+$$H=87.6\ \mathrm{m}.$$
 
 均匀网格的单元长度为：
 
-$$
-L_e=\frac{H}{n_e}.
-$$
+$$L_e=\frac{H}{n_e}.$$
 
 不同网格对应的模型规模如下。
 
@@ -162,9 +150,7 @@ Euler–Bernoulli 梁单元采用高阶横向位移插值，少量单元通常�
 
 10 个单元对应：
 
-$$
-L_e=8.76\ \mathrm{m}.
-$$
+$$L_e=8.76\ \mathrm{m}.$$
 
 建议用途：
 
@@ -180,9 +166,7 @@ $$
 
 20 个单元对应：
 
-$$
-L_e=4.38\ \mathrm{m}.
-$$
+$$L_e=4.38\ \mathrm{m}.$$
 
 建议用途：
 
@@ -198,9 +182,7 @@ $$
 
 40 个单元对应：
 
-$$
-L_e=2.19\ \mathrm{m}.
-$$
+$$L_e=2.19\ \mathrm{m}.$$
 
 主要优点：
 
@@ -216,9 +198,7 @@ $$
 
 80 个单元对应：
 
-$$
-L_e=1.095\ \mathrm{m}.
-$$
+$$L_e=1.095\ \mathrm{m}.$$
 
 主要用途：
 
@@ -235,9 +215,7 @@ $$
 
 建议依次计算：
 
-$$
-n_e=10,\quad20,\quad40,\quad80.
-$$
+$$n_e=10,\quad20,\quad40,\quad80.$$
 
 可定义为：
 
@@ -270,17 +248,11 @@ Mesh M3: 80 elements
 
 可以采用相邻网格相对差：
 
-$$
-e_R
-=
-\frac{|R_{40}-R_{80}|}{|R_{80}|}.
-$$
+$$e_R = \frac{|R_{40}-R_{80}|}{|R_{80}|}.$$
 
 对整体响应，可暂定判据为：
 
-$$
-e_R<1\%.
-$$
+$$e_R<1\%.$$
 
 ### 8.2 截面响应
 
@@ -294,9 +266,7 @@ $$
 
 局部量对网格更敏感，可暂定判据为：
 
-$$
-e_R<2\%.
-$$
+$$e_R<2\%.$$
 
 ### 8.3 材料非线性响应
 
@@ -327,13 +297,9 @@ $$
 
 塔筒外径和壁厚沿高度连续变化：
 
-$$
-D(z)=D_b+\frac{D_t-D_b}{H}z,
-$$
+$$D(z)=D_b+\frac{D_t-D_b}{H}z,$$
 
-$$
-t(z)=t_b+\frac{t_t-t_b}{H}z.
-$$
+$$t(z)=t_b+\frac{t_t-t_b}{H}z.$$
 
 在梁单元中，可以采用两种方式表示这种变截面。
 
@@ -343,29 +309,19 @@ $$
 
 对第 $e$ 个单元，设两端节点高度为 $z_i$ 和 $z_j$，单元中心高度为：
 
-$$
-z_{e,c}=\frac{z_i+z_j}{2}.
-$$
+$$z_{e,c}=\frac{z_i+z_j}{2}.$$
 
 在单元中心计算：
 
-$$
-D_e=D(z_{e,c}),
-$$
+$$D_e=D(z_{e,c}),$$
 
-$$
-t_e=t(z_{e,c}),
-$$
+$$t_e=t(z_{e,c}),$$
 
 并令整个单元采用固定的：
 
-$$
-A_e=A(z_{e,c}),
-$$
+$$A_e=A(z_{e,c}),$$
 
-$$
-I_e=I(z_{e,c}).
-$$
+$$I_e=I(z_{e,c}).$$
 
 ### 10.1 物理含义
 
@@ -411,75 +367,31 @@ $$
 
 第 $g$ 个 Gauss 积分点对应的实际高度为：
 
-$$
-z_{e,g}
-=
-z_{e,c}
-+
-\frac{L_e}{2}\xi_g.
-$$
+$$z_{e,g} = z_{e,c} + \frac{L_e}{2}\xi_g.$$
 
 在每个积分点分别计算：
 
-$$
-D_{e,g}=D(z_{e,g}),
-$$
+$$D_{e,g}=D(z_{e,g}),$$
 
-$$
-t_{e,g}=t(z_{e,g}),
-$$
+$$t_{e,g}=t(z_{e,g}),$$
 
-$$
-D_{i,e,g}=D_{e,g}-2t_{e,g}.
-$$
+$$D_{i,e,g}=D_{e,g}-2t_{e,g}.$$
 
 进而得到：
 
-$$
-A_{e,g}
-=
-\frac{\pi}{4}
-\left(
-D_{e,g}^2-D_{i,e,g}^2
-\right),
-$$
+$$A_{e,g} = \frac{\pi}{4} \left( D_{e,g}^2-D_{i,e,g}^2 \right),$$
 
-$$
-I_{e,g}
-=
-\frac{\pi}{64}
-\left(
-D_{e,g}^4-D_{i,e,g}^4
-\right).
-$$
+$$I_{e,g} = \frac{\pi}{64} \left( D_{e,g}^4-D_{i,e,g}^4 \right).$$
 
 ### 11.1 单元刚度数值积分
 
 梁单元刚度可以写为：
 
-$$
-\mathbf K_e
-=
-\int_{-1}^{1}
-\mathbf B(\xi)^{\mathrm T}
-\mathbf C_s(\xi)
-\mathbf B(\xi)
-\frac{L_e}{2}
-\,d\xi.
-$$
+$$\mathbf K_e = \int_{-1}^{1} \mathbf B(\xi)^{\mathrm T} \mathbf C_s(\xi) \mathbf B(\xi) \frac{L_e}{2} \,d\xi.$$
 
 采用 Gauss-Legendre 积分后：
 
-$$
-\mathbf K_e
-\approx
-\sum_{g=1}^{n_g}
-\mathbf B_g^{\mathrm T}
-\mathbf C_{s,g}
-\mathbf B_g
-w_g
-\frac{L_e}{2}.
-$$
+$$\mathbf K_e \approx \sum_{g=1}^{n_g} \mathbf B_g^{\mathrm T} \mathbf C_{s,g} \mathbf B_g w_g \frac{L_e}{2}.$$
 
 其中：
 
@@ -517,53 +429,31 @@ $$
 
 塔筒外径和壁厚均沿高度线性变化：
 
-$$
-D(z)\sim z,
-$$
+$$D(z)\sim z,$$
 
-$$
-t(z)\sim z.
-$$
+$$t(z)\sim z.$$
 
 截面面积为：
 
-$$
-A(z)
-=
-\frac{\pi}{4}
-\left[
-D(z)^2-\left(D(z)-2t(z)\right)^2
-\right].
-$$
+$$A(z) = \frac{\pi}{4} \left[ D(z)^2-\left(D(z)-2t(z)\right)^2 \right].$$
 
 由于 $D(z)$ 和 $t(z)$ 均为一次函数，因此 $A(z)$ 至多为关于 $z$ 的二次多项式。
 
 截面惯性矩为：
 
-$$
-I(z)
-=
-\frac{\pi}{64}
-\left[
-D(z)^4-\left(D(z)-2t(z)\right)^4
-\right].
-$$
+$$I(z) = \frac{\pi}{64} \left[ D(z)^4-\left(D(z)-2t(z)\right)^4 \right].$$
 
 因此 $I(z)$ 至多为关于 $z$ 的四次多项式。
 
 对两节点 Euler–Bernoulli 梁，弯曲曲率插值通常关于局部坐标为一次函数，因此：
 
-$$
-\mathbf B_b^{\mathrm T}I(z)\mathbf B_b
-$$
+$$\mathbf B_b^{\mathrm T}I(z)\mathbf B_b$$
 
 最高可能达到六次多项式。
 
 Gauss-Legendre 积分中，$n_g$ 个积分点可精确积分最高：
 
-$$
-2n_g-1
-$$
+$$2n_g-1$$
 
 次多项式。
 
@@ -578,11 +468,7 @@ $$
 
 由此可见：
 
-$$
-\boxed{
-4\text{ 点 Gauss-Legendre 积分足以准确积分线性渐缩 Euler–Bernoulli 梁的弹性刚度}
-}
-$$
+$$\boxed{ 4\text{ 点 Gauss-Legendre 积分足以准确积分线性渐缩 Euler–Bernoulli 梁的弹性刚度} }$$
 
 这也是正式模型建议采用 4 个轴向积分点的主要数学依据。
 
@@ -615,15 +501,11 @@ $$
 
 则轴向截面计算位置总数为：
 
-$$
-40\times4=160.
-$$
+$$40\times4=160.$$
 
 单轴材料点总数为：
 
-$$
-40\times4\times64=10240.
-$$
+$$40\times4\times64=10240.$$
 
 每个材料点可能需要保存：
 

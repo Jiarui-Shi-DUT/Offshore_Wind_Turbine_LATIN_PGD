@@ -19,17 +19,13 @@ Euler–Bernoulli 梁柱单元用于描述梁或柱构件的轴向拉压与横�
 
 因此，截面转角等于挠曲线斜率：
 
-$$
-\theta=\frac{\mathrm{d}v}{\mathrm{d}x}.
-$$
+$$\theta=\frac{\mathrm{d}v}{\mathrm{d}x}.$$
 
 该假设意味着 Euler–Bernoulli 梁忽略横向剪切变形，认为构件横向位移主要由弯曲产生。
 
 对于长度为 $L$、弯曲刚度为 $EI$ 的悬臂梁，在自由端承受集中力 $P$ 时，经典顶端位移为：
 
-$$
-v_{\mathrm{tip}}=\frac{PL^3}{3EI}.
-$$
+$$v_{\mathrm{tip}}=\frac{PL^3}{3EI}.$$
 
 该结果只包含弯曲变形贡献。
 
@@ -43,25 +39,15 @@ Timoshenko 梁同样能够描述轴向与弯曲响应，但进一步考虑横向
 
 因此，截面转角 $\theta$ 与挠曲线斜率 $\mathrm{d}v/\mathrm{d}x$ 可以不同，两者之差对应剪切变形：
 
-$$
-\gamma=\theta-\frac{\mathrm{d}v}{\mathrm{d}x}.
-$$
+$$\gamma=\theta-\frac{\mathrm{d}v}{\mathrm{d}x}.$$
 
 Timoshenko 梁的横向位移可理解为弯曲变形与剪切变形之和：
 
-$$
-v=v_{\mathrm{bending}}+v_{\mathrm{shear}}.
-$$
+$$v=v_{\mathrm{bending}}+v_{\mathrm{shear}}.$$
 
 对于自由端承受集中力 $P$ 的悬臂梁，其顶端位移可写为：
 
-$$
-v_{\mathrm{tip}}
-=
-\frac{PL^3}{3EI}
-+
-\frac{PL}{\kappa GA},
-$$
+$$v_{\mathrm{tip}} = \frac{PL^3}{3EI} + \frac{PL}{\kappa GA},$$
 
 其中：
 
@@ -116,17 +102,7 @@ Euler–Bernoulli 梁在本项目中的主要优势包括：
 
 为了控制问题复杂度，建议第一阶段采用 Euler–Bernoulli 梁，并按以下顺序逐步建立与验证：
 
-$$
-\text{二维梁柱单元}
-\rightarrow
-\text{纤维截面}
-\rightarrow
-\text{单轴循环黏塑性损伤材料}
-\rightarrow
-\text{LATIN 全局与局部阶段}
-\rightarrow
-\text{PGD 降阶表示}.
-$$
+$$\text{二维梁柱单元} \rightarrow \text{纤维截面} \rightarrow \text{单轴循环黏塑性损伤材料} \rightarrow \text{LATIN 全局与局部阶段} \rightarrow \text{PGD 降阶表示}.$$
 
 这样可以先集中验证：
 

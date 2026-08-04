@@ -52,48 +52,29 @@ latin/pgd_global_stage.py
 
 ## 3. 新增 PGD 模态在做什么
 
-设当前 PGD 近似包含 $`M`$ 个模态：
+设当前 PGD 近似包含 $M$ 个模态：
 
-```math
-u_M(x,t)
-=
-\sum_{m=1}^{M}
-X_m(x)\lambda_m(t).
-```
+$$u_M(x,t) = \sum_{m=1}^{M} X_m(x)\lambda_m(t).$$
 
 将当前近似代入全局阶段方程后，仍会存在一个未被消除的残差：
 
-```math
-r(x,t).
-```
+$$r(x,t).$$
 
 为了进一步降低残差，需要构造一个新的空间–时间分离项：
 
-```math
-c(x,t)
-=
-X_{M+1}(x)\lambda_{M+1}(t).
-```
+$$c(x,t) = X_{M+1}(x)\lambda_{M+1}(t).$$
 
 加入该模态后，新的近似写为：
 
-```math
-u_{M+1}(x,t)
-=
-u_M(x,t)
-+
-\alpha c(x,t).
-```
+$$u_{M+1}(x,t) = u_M(x,t) + \alpha c(x,t).$$
 
-其中 $`\alpha`$ 是新增模态的整体贡献系数。
+其中 $\alpha$ 是新增模态的整体贡献系数。
 
 若直接采用固定点迭代得到的原始模态，相当于默认：
 
-```math
-\alpha=1.
-```
+$$\alpha=1.$$
 
-但 $`\alpha=1`$ 并不一定是当前残差下的最优选择。
+但 $\alpha=1$ 并不一定是当前残差下的最优选择。
 
 ---
 
@@ -101,20 +82,11 @@ u_M(x,t)
 
 一个 PGD 模态由空间函数和时间函数的乘积组成：
 
-```math
-c(x,t)
-=
-X(x)\lambda(t).
-```
+$$c(x,t) = X(x)\lambda(t).$$
 
 该分离表示存在天然的尺度不唯一性。例如：
 
-```math
-X(x)\lambda(t)
-=
-\left(10X(x)\right)
-\left(0.1\lambda(t)\right).
-```
+$$X(x)\lambda(t) = \left(10X(x)\right) \left(0.1\lambda(t)\right).$$
 
 两种写法表示的是完全相同的空间–时间场。
 
@@ -134,31 +106,17 @@ X(x)\lambda(t)
 
 ## 5. 固定点收敛究竟说明了什么
 
-设第 $`k`$ 次交替更新得到的候选修正场为：
+设第 $k$ 次交替更新得到的候选修正场为：
 
-```math
-c_k(x,t).
-```
+$$c_k(x,t).$$
 
 固定点迭代通常通过相邻两次候选场的相对变化判断收敛，例如：
 
-```math
-\eta_k
-=
-\frac{
-\left\|c_k-c_{k-1}\right\|
-}{
-\left\|c_k\right\|
-}.
-```
+$$\eta_k = \frac{ \left\|c_k-c_{k-1}\right\| }{ \left\|c_k\right\| }.$$
 
 当：
 
-```math
-\eta_k
-\leq
-\eta_{\mathrm{tol}}
-```
+$$\eta_k \leq \eta_{\mathrm{tol}}$$
 
 时，可以认为：
 
@@ -166,20 +124,11 @@ c_k(x,t).
 
 但是，这并不等价于：
 
-```math
-\left\|r+c_k\right\|
-=
-\min_c
-\left\|r+c\right\|.
-```
+$$\left\|r+c_k\right\| = \min_c \left\|r+c\right\|.$$
 
 也不严格等价于：
 
-```math
-\left\|r+c_k\right\|
-<
-\left\|r\right\|.
-```
+$$\left\|r+c_k\right\| < \left\|r\right\|.$$
 
 因此，“固定点已经收敛”只能说明候选模态对当前交替更新映射已经稳定，不能单独保证将其以原始幅值加入后一定降低完整时空残差。
 
@@ -193,12 +142,7 @@ c_k(x,t).
 
 当构造第二个或第三个模态时，当前近似已经包含：
 
-```math
-u_M(x,t)
-=
-\sum_{m=1}^{M}
-X_m(x)\lambda_m(t).
-```
+$$u_M(x,t) = \sum_{m=1}^{M} X_m(x)\lambda_m(t).$$
 
 此时新模态面对的不是原始外载或原始响应，而是：
 
@@ -242,58 +186,23 @@ X_m(x)\lambda_m(t).
 
 当前时间函数并不是一次性联合求解所有时间系数，而是按照时间顺序更新：
 
-```math
-\lambda_1
-\rightarrow
-\lambda_2
-\rightarrow
-\lambda_3
-\rightarrow
-\cdots
-\rightarrow
-\lambda_N.
-```
+$$\lambda_1 \rightarrow \lambda_2 \rightarrow \lambda_3 \rightarrow \cdots \rightarrow \lambda_N.$$
 
 一个典型的时间离散残差可表示为：
 
-```math
-r_n
-=
-\bar{\varepsilon}^{p}
-\frac{
-\lambda_n-\lambda_{n-1}
-}{
-\Delta t
-}
--
-H_{\sigma,n}\bar{\sigma}\lambda_n
--
-f_n.
-```
+$$r_n = \bar{\varepsilon}^{p} \frac{ \lambda_n-\lambda_{n-1} }{ \Delta t } - H_{\sigma,n}\bar{\sigma}\lambda_n - f_n.$$
 
-其中 $`\lambda_n`$ 不仅影响当前时刻的残差 $`r_n`$，还会通过时间导数影响下一时刻的残差 $`r_{n+1}`$。
+其中 $\lambda_n$ 不仅影响当前时刻的残差 $r_n$，还会通过时间导数影响下一时刻的残差 $r_{n+1}$。
 
 例如：
 
-```math
-r_1
-=
-r_1(\lambda_1,\lambda_0),
-```
+$$r_1 = r_1(\lambda_1,\lambda_0),$$
 
-```math
-r_2
-=
-r_2(\lambda_2,\lambda_1),
-```
+$$r_2 = r_2(\lambda_2,\lambda_1),$$
 
-```math
-r_3
-=
-r_3(\lambda_3,\lambda_2).
-```
+$$r_3 = r_3(\lambda_3,\lambda_2).$$
 
-当程序求解 $`\lambda_1`$ 时，主要处理当前时间步的离散方程，但 $`\lambda_1`$ 还会影响后续的 $`r_2`$。
+当程序求解 $\lambda_1$ 时，主要处理当前时间步的离散方程，但 $\lambda_1$ 还会影响后续的 $r_2$。
 
 因此，逐时间步更新得到的是：
 
@@ -301,13 +210,7 @@ r_3(\lambda_3,\lambda_2).
 
 它不完全等同于一次性求解：
 
-```math
-\min_{
-\lambda_1,\lambda_2,\ldots,\lambda_N
-}
-\sum_{n=1}^{N}
-\left\|r_n\right\|^2.
-```
+$$\min_{ \lambda_1,\lambda_2,\ldots,\lambda_N } \sum_{n=1}^{N} \left\|r_n\right\|^2.$$
 
 因此，时间函数的整体形状可以是有效的，但其全局幅值仍可能不是完整时空残差下的最优幅值。
 
@@ -315,19 +218,11 @@ r_3(\lambda_3,\lambda_2).
 
 ### 6.4 一个时间系数需要同时拟合多个空间位置
 
-在实际有限元离散中，某一时刻的时间系数 $`\lambda_n`$ 是一个标量，但它需要同时作用于所有单元或所有空间积分点。
+在实际有限元离散中，某一时刻的时间系数 $\lambda_n$ 是一个标量，但它需要同时作用于所有单元或所有空间积分点。
 
 残差可写成：
 
-```math
-r_n(x)
-=
-\bar{\varepsilon}^{p}(x)\dot{\lambda}_n
--
-H_{\sigma}(x,t_n)\bar{\sigma}(x)\lambda_n
--
-f(x,t_n).
-```
+$$r_n(x) = \bar{\varepsilon}^{p}(x)\dot{\lambda}_n - H_{\sigma}(x,t_n)\bar{\sigma}(x)\lambda_n - f(x,t_n).$$
 
 由于不同位置具有不同的：
 
@@ -337,7 +232,7 @@ f(x,t_n).
 - 应力状态；
 - 剩余残差分布；
 
-一个标量 $`\lambda_n`$ 通常无法使所有空间位置的残差同时为零，只能得到某种加权意义下的折中解。
+一个标量 $\lambda_n$ 通常无法使所有空间位置的残差同时为零，只能得到某种加权意义下的折中解。
 
 这个折中解在逐时间步、逐子问题更新后，不一定恰好具有最优整体尺度。
 
@@ -361,11 +256,7 @@ f(x,t_n).
 
 这里的“方向”不是指一个简单的有限维向量方向，而是指新增模态的空间–时间分布模式：
 
-```math
-c(x,t)
-=
-X(x)\lambda(t).
-```
+$$c(x,t) = X(x)\lambda(t).$$
 
 它包含以下信息：
 
@@ -383,17 +274,13 @@ X(x)\lambda(t).
 
 例如，候选模态形状正确，但最佳更新实际上应为：
 
-```math
-0.3c(x,t),
-```
+$$0.3c(x,t),$$
 
 而不是：
 
-```math
-1.0c(x,t).
-```
+$$1.0c(x,t).$$
 
-如果直接加入完整的 $`c(x,t)`$，就可能发生修正过度。
+如果直接加入完整的 $c(x,t)$，就可能发生修正过度。
 
 ---
 
@@ -401,150 +288,63 @@ X(x)\lambda(t).
 
 设当前残差为：
 
-```math
-r(x,t),
-```
+$$r(x,t),$$
 
 候选 PGD 修正方向为：
 
-```math
-c(x,t).
-```
+$$c(x,t).$$
 
 加入缩放系数后，新残差写成：
 
-```math
-r_{\mathrm{new}}
-=
-r+\alpha c.
-```
+$$r_{\mathrm{new}} = r+\alpha c.$$
 
-目标是在当前候选方向上选择一个标量 $`\alpha`$，使完整时空域中的加权残差范数最小：
+目标是在当前候选方向上选择一个标量 $\alpha$，使完整时空域中的加权残差范数最小：
 
-```math
-\alpha^\ast
-=
-\mathrm{arg\,min}_{\alpha}
-\left\|
-r+\alpha c
-\right\|_{H_\sigma^{-1}}^2.
-```
+$$\alpha^\ast = \mathrm{arg\,min}_{\alpha} \left\| r+\alpha c \right\|_{H_\sigma^{-1}}^2.$$
 
 定义加权内积：
 
-```math
-\left\langle a,b\right\rangle_{H_\sigma^{-1}}
-=
-\int_{0}^{T}
-\int_{\Omega}
-\frac{
-a(x,t)b(x,t)
-}{
-H_\sigma(x,t)
-}
-\,\mathrm{d}\Omega
-\,\mathrm{d}t.
-```
+$$\left\langle a,b\right\rangle_{H_\sigma^{-1}} = \int_{0}^{T} \int_{\Omega} \frac{ a(x,t)b(x,t) }{ H_\sigma(x,t) } \,\mathrm{d}\Omega \,\mathrm{d}t.$$
 
 目标函数为：
 
-```math
-J(\alpha)
-=
-\left\langle
-r+\alpha c,
-r+\alpha c
-\right\rangle_{H_\sigma^{-1}}.
-```
+$$J(\alpha) = \left\langle r+\alpha c, r+\alpha c \right\rangle_{H_\sigma^{-1}}.$$
 
 展开后得到：
 
-```math
-J(\alpha)
-=
-\left\langle r,r\right\rangle
-+
-2\alpha
-\left\langle r,c\right\rangle
-+
-\alpha^2
-\left\langle c,c\right\rangle.
-```
+$$J(\alpha) = \left\langle r,r\right\rangle + 2\alpha \left\langle r,c\right\rangle + \alpha^2 \left\langle c,c\right\rangle.$$
 
-对 $`\alpha`$ 求导：
+对 $\alpha$ 求导：
 
-```math
-\frac{
-\mathrm{d}J
-}{
-\mathrm{d}\alpha
-}
-=
-2\left\langle r,c\right\rangle
-+
-2\alpha
-\left\langle c,c\right\rangle.
-```
+$$\frac{ \mathrm{d}J }{ \mathrm{d}\alpha } = 2\left\langle r,c\right\rangle + 2\alpha \left\langle c,c\right\rangle.$$
 
 令导数为零：
 
-```math
-\frac{
-\mathrm{d}J
-}{
-\mathrm{d}\alpha
-}
-=
-0,
-```
+$$\frac{ \mathrm{d}J }{ \mathrm{d}\alpha } = 0,$$
 
 得到最优缩放系数：
 
-```math
-\alpha^\ast
-=
--
-\frac{
-\left\langle r,c\right\rangle_{H_\sigma^{-1}}
-}{
-\left\langle c,c\right\rangle_{H_\sigma^{-1}}
-}.
-```
+$$\alpha^\ast = - \frac{ \left\langle r,c\right\rangle_{H_\sigma^{-1}} }{ \left\langle c,c\right\rangle_{H_\sigma^{-1}} }.$$
 
 ---
 
 ## 9. 为什么这一公式能够找到最佳幅值
 
-目标函数 $`J(\alpha)`$ 是关于 $`\alpha`$ 的二次函数：
+目标函数 $J(\alpha)$ 是关于 $\alpha$ 的二次函数：
 
-```math
-J(\alpha)
-=
-A\alpha^2
-+
-B\alpha
-+
-C,
-```
+$$J(\alpha) = A\alpha^2 + B\alpha + C,$$
 
 其中：
 
-```math
-A
-=
-\left\langle c,c\right\rangle_{H_\sigma^{-1}}
-\geq0.
-```
+$$A = \left\langle c,c\right\rangle_{H_\sigma^{-1}} \geq0.$$
 
 只要候选模态不是零模态，就有：
 
-```math
-A>0.
-```
+$$A>0.$$
 
-因此 $`J(\alpha)`$ 是开口向上的凸二次函数，存在唯一最小值。
+因此 $J(\alpha)$ 是开口向上的凸二次函数，存在唯一最小值。
 
-$`\alpha^\ast`$ 正是该抛物线最低点对应的横坐标。
+$\alpha^\ast$ 正是该抛物线最低点对应的横坐标。
 
 所以最优缩放不是经验调整，而是在当前候选模态方向上的解析一维最小化。
 
@@ -554,35 +354,21 @@ $`\alpha^\ast`$ 正是该抛物线最低点对应的横坐标。
 
 不加入新模态相当于：
 
-```math
-\alpha=0.
-```
+$$\alpha=0.$$
 
-由于 $`\alpha^\ast`$ 是当前方向上的最优点，因此：
+由于 $\alpha^\ast$ 是当前方向上的最优点，因此：
 
-```math
-J(\alpha^\ast)
-\leq
-J(0).
-```
+$$J(\alpha^\ast) \leq J(0).$$
 
 也就是：
 
-```math
-\left\|
-r+\alpha^\ast c
-\right\|_{H_\sigma^{-1}}
-\leq
-\left\|
-r
-\right\|_{H_\sigma^{-1}}.
-```
+$$\left\| r+\alpha^\ast c \right\|_{H_\sigma^{-1}} \leq \left\| r \right\|_{H_\sigma^{-1}}.$$
 
 因此，经过最优缩放后，新增模态至少不会比完全不加入该模态更差。
 
 需要注意，该结论只表示：
 
-> 在当前候选方向 $`c`$ 上，$`\alpha^\ast`$ 是最佳幅值。
+> 在当前候选方向 $c$ 上，$\alpha^\ast$ 是最佳幅值。
 
 它不表示当前候选方向是所有可能空间–时间方向中的全局最优方向。
 
@@ -592,12 +378,12 @@ r
 
 | 最优系数 | 含义 |
 |---|---|
-| $`\alpha^\ast=1`$ | 原始模态幅值恰好合适 |
-| $`0<\alpha^\ast<1`$ | 候选方向有效，但原始幅值过大 |
-| $`\alpha^\ast>1`$ | 候选方向有效，但原始幅值偏小 |
-| $`\alpha^\ast<0`$ | 候选模态原始符号与降低残差的方向相反 |
-| $`\alpha^\ast\approx0`$ | 候选模态与当前残差近似正交，贡献很小 |
-| $`\langle c,c\rangle\approx0`$ | 候选模态接近零模态，不应接受 |
+| $\alpha^\ast=1$ | 原始模态幅值恰好合适 |
+| $0<\alpha^\ast<1$ | 候选方向有效，但原始幅值过大 |
+| $\alpha^\ast>1$ | 候选方向有效，但原始幅值偏小 |
+| $\alpha^\ast<0$ | 候选模态原始符号与降低残差的方向相反 |
+| $\alpha^\ast\approx0$ | 候选模态与当前残差近似正交，贡献很小 |
+| $\langle c,c\rangle\approx0$ | 候选模态接近零模态，不应接受 |
 
 ---
 
@@ -611,63 +397,31 @@ r
 
 缩放前，候选模态使残差从：
 
-```math
-\left\|r\right\|
-=
-40.1190
-```
+$$\left\|r\right\| = 40.1190$$
 
 增大到：
 
-```math
-\left\|r_{\mathrm{new}}\right\|
-=
-55.0036.
-```
+$$\left\|r_{\mathrm{new}}\right\| = 55.0036.$$
 
 相对残差为：
 
-```math
-\frac{
-55.0036
-}{
-40.1190
-}
-=
-1.3710.
-```
+$$\frac{ 55.0036 }{ 40.1190 } = 1.3710.$$
 
 即残差增加约：
 
-```math
-37.1\%.
-```
+$$37.1\%.$$
 
 经过最优缩放后：
 
-```math
-\left\|r_{\mathrm{new}}\right\|
-=
-37.5552.
-```
+$$\left\|r_{\mathrm{new}}\right\| = 37.5552.$$
 
 对应：
 
-```math
-\frac{
-37.5552
-}{
-40.1190
-}
-=
-0.9361.
-```
+$$\frac{ 37.5552 }{ 40.1190 } = 0.9361.$$
 
 残差降低约：
 
-```math
-6.39\%.
-```
+$$6.39\%.$$
 
 这说明最优缩放将一个原本会使残差增大的候选模态，调整为能够有效降低残差的模态。
 
@@ -677,43 +431,23 @@ r
 
 若新增塑性应变修正写成：
 
-```math
-\Delta\varepsilon^p(x,t)
-=
-X_{\varepsilon}(x)\lambda(t),
-```
+$$\Delta\varepsilon^p(x,t) = X_{\varepsilon}(x)\lambda(t),$$
 
 其对应的塑性应变率为：
 
-```math
-\Delta\dot{\varepsilon}^{p}(x,t)
-=
-X_{\varepsilon}(x)\dot{\lambda}(t).
-```
+$$\Delta\dot{\varepsilon}^{p}(x,t) = X_{\varepsilon}(x)\dot{\lambda}(t).$$
 
-计算出 $`\alpha^\ast`$ 后，程序同步执行：
+计算出 $\alpha^\ast$ 后，程序同步执行：
 
-```math
-\lambda(t)
-\leftarrow
-\alpha^\ast\lambda(t),
-```
+$$\lambda(t) \leftarrow \alpha^\ast\lambda(t),$$
 
 以及：
 
-```math
-\dot{\lambda}(t)
-\leftarrow
-\alpha^\ast\dot{\lambda}(t).
-```
+$$\dot{\lambda}(t) \leftarrow \alpha^\ast\dot{\lambda}(t).$$
 
 从而使整个新模态统一变为：
 
-```math
-c(x,t)
-\leftarrow
-\alpha^\ast c(x,t).
-```
+$$c(x,t) \leftarrow \alpha^\ast c(x,t).$$
 
 该操作不会改变：
 
@@ -739,10 +473,10 @@ c(x,t)
 
 | 优化概念 | PGD 对应含义 |
 |---|---|
-| 搜索方向 | 候选空间–时间模态 $`c(x,t)`$ |
-| 步长 | 模态缩放系数 $`\alpha`$ |
-| 目标函数 | 加权残差范数 $`\|r+\alpha c\|^2`$ |
-| 线搜索结果 | 最优缩放系数 $`\alpha^\ast`$ |
+| 搜索方向 | 候选空间–时间模态 $c(x,t)$ |
+| 步长 | 模态缩放系数 $\alpha$ |
+| 目标函数 | 加权残差范数 $\|r+\alpha c\|^2$ |
+| 线搜索结果 | 最优缩放系数 $\alpha^\ast$ |
 
 因此，“最优缩放”本质上是一维解析线搜索。
 
@@ -760,11 +494,7 @@ c(x,t)
 
 则候选模态自身应接近最优尺度，此时通常有：
 
-```math
-\alpha^\ast
-\approx
-1.
-```
+$$\alpha^\ast \approx 1.$$
 
 因此，最优缩放不是 PGD 理论中必然存在的基本步骤。
 
@@ -798,16 +528,7 @@ c(x,t)
 
 但是，论文没有明确给出当前采用的标量最优缩放公式：
 
-```math
-\alpha^\ast
-=
--
-\frac{
-\left\langle r,c\right\rangle
-}{
-\left\langle c,c\right\rangle
-}.
-```
+$$\alpha^\ast = - \frac{ \left\langle r,c\right\rangle }{ \left\langle c,c\right\rangle }.$$
 
 因此，该步骤应准确表述为：
 
@@ -862,7 +583,7 @@ c(x,t)
 
 后续应记录和检查：
 
-- 每次增广的 $`\alpha^\ast`$；
+- 每次增广的 $\alpha^\ast$；
 - 缩放前后残差；
 - 候选模态范数；
 - 与已有模态的相关性；
@@ -873,19 +594,11 @@ c(x,t)
 
 若大量模态长期出现：
 
-```math
-\alpha^\ast
-\ll
-1
-```
+$$\alpha^\ast \ll 1$$
 
 或频繁出现：
 
-```math
-\alpha^\ast
-<
-0,
-```
+$$\alpha^\ast < 0,$$
 
 则说明不仅是幅值问题，还可能需要重新检查：
 
