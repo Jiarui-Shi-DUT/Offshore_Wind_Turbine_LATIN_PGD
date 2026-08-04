@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-Fiber discretization utilities for thin-walled circular annular sections.
+Fiber discretization and section-response utilities for thin-walled
+circular annular sections.
 """
 
 from __future__ import annotations
@@ -180,6 +181,11 @@ class AnnularFiberSection:
         )
 
     @property
+    def first_moment_y(self) -> float:
+        """Return the first moment of area with respect to y."""
+        return float(np.dot(self.areas, self.y_coordinates))
+
+    @property
     def centroid_x(self) -> float:
         """Return the fiber-discretized x-coordinate of the centroid."""
         return float(
@@ -189,9 +195,7 @@ class AnnularFiberSection:
     @property
     def centroid_y(self) -> float:
         """Return the fiber-discretized y-coordinate of the centroid."""
-        return float(
-            np.dot(self.areas, self.y_coordinates) / self.area
-        )
+        return float(self.first_moment_y / self.area)
 
     @property
     def second_moment_x(self) -> float:
@@ -252,6 +256,115 @@ class AnnularFiberSection:
         )
 
 
+@dataclass(frozen=True)
+class ElasticSectionResponse:
+    """
+    Linear-elastic response of one annular fiber section.
+
+    The section kinematic convention is
+
+        epsilon_f = epsilon_0 - kappa * y_f
+
+    and the bending-moment convention is
+
+        M = -sum(sigma_f * y_f * A_f).
+
+    Consequently, positive curvature produces a positive bending moment.
+    """
+
+    axial_strain: float
+    curvature: float
+    elastic_modulus: float
+    fiber_strains: FloatArray
+    fiber_stresses: FloatArray
+    axial_force: float
+    bending_moment: float
+    tangent: FloatArray
+
+    def __post_init__(self) -> None:
+        axial_strain = _validated_finite_scalar(
+            self.axial_strain,
+            "axial_strain",
+        )
+        curvature = _validated_finite_scalar(
+            self.curvature,
+            "curvature",
+        )
+        elastic_modulus = _validated_positive_scalar(
+            self.elastic_modulus,
+            "elastic_modulus",
+        )
+
+        fiber_strains = np.asarray(
+            self.fiber_strains,
+            dtype=np.float64,
+        )
+        fiber_stresses = np.asarray(
+            self.fiber_stresses,
+            dtype=np.float64,
+        )
+        tangent = np.asarray(self.tangent, dtype=np.float64)
+
+        if fiber_strains.ndim != 1:
+            raise ValueError(
+                "fiber_strains must be one-dimensional."
+            )
+        if fiber_stresses.shape != fiber_strains.shape:
+            raise ValueError(
+                "fiber_stresses must match fiber_strains."
+            )
+        if np.any(~np.isfinite(fiber_strains)):
+            raise ValueError("fiber_strains must be finite.")
+        if np.any(~np.isfinite(fiber_stresses)):
+            raise ValueError("fiber_stresses must be finite.")
+        if tangent.shape != (2, 2):
+            raise ValueError("tangent must have shape (2, 2).")
+        if np.any(~np.isfinite(tangent)):
+            raise ValueError("tangent must be finite.")
+
+        axial_force = _validated_finite_scalar(
+            self.axial_force,
+            "axial_force",
+        )
+        bending_moment = _validated_finite_scalar(
+            self.bending_moment,
+            "bending_moment",
+        )
+
+        object.__setattr__(self, "axial_strain", axial_strain)
+        object.__setattr__(self, "curvature", curvature)
+        object.__setattr__(
+            self,
+            "elastic_modulus",
+            elastic_modulus,
+        )
+        object.__setattr__(
+            self,
+            "fiber_strains",
+            fiber_strains,
+        )
+        object.__setattr__(
+            self,
+            "fiber_stresses",
+            fiber_stresses,
+        )
+        object.__setattr__(self, "axial_force", axial_force)
+        object.__setattr__(
+            self,
+            "bending_moment",
+            bending_moment,
+        )
+        object.__setattr__(self, "tangent", tangent)
+
+    @property
+    def resultants(self) -> FloatArray:
+        """Return [axial_force, bending_moment]."""
+        return np.array(
+            [self.axial_force, self.bending_moment],
+            dtype=np.float64,
+        )
+
+
 def _validated_integer(value: int, name: str) -> int:
     """Return a validated integer discretization parameter."""
     if isinstance(value, (bool, np.bool_)):
@@ -259,6 +372,26 @@ def _validated_integer(value: int, name: str) -> int:
     if not isinstance(value, (int, np.integer)):
         raise TypeError(name + " must be an integer.")
     return int(value)
+
+
+def _validated_finite_scalar(value: float, name: str) -> float:
+    """Return a finite floating-point scalar."""
+    try:
+        result = float(value)
+    except (TypeError, ValueError) as error:
+        raise TypeError(name + " must be a real scalar.") from error
+
+    if not np.isfinite(result):
+        raise ValueError(name + " must be finite.")
+    return result
+
+
+def _validated_positive_scalar(value: float, name: str) -> float:
+    """Return a finite positive floating-point scalar."""
+    result = _validated_finite_scalar(value, name)
+    if result <= 0.0:
+        raise ValueError(name + " must be positive.")
+    return result
 
 
 def create_annular_fiber_section(
@@ -289,8 +422,14 @@ def create_annular_fiber_section(
     n_radial
         Number of equal radial layers through the wall thickness.
     """
-    outer_diameter = float(outer_diameter)
-    thickness = float(thickness)
+    outer_diameter = _validated_positive_scalar(
+        outer_diameter,
+        "outer_diameter",
+    )
+    thickness = _validated_positive_scalar(
+        thickness,
+        "thickness",
+    )
     n_circumferential = _validated_integer(
         n_circumferential,
         "n_circumferential",
@@ -299,13 +438,6 @@ def create_annular_fiber_section(
         n_radial,
         "n_radial",
     )
-
-    if not np.isfinite(outer_diameter) or outer_diameter <= 0.0:
-        raise ValueError(
-            "outer_diameter must be finite and positive."
-        )
-    if not np.isfinite(thickness) or thickness <= 0.0:
-        raise ValueError("thickness must be finite and positive.")
 
     outer_radius = 0.5 * outer_diameter
     inner_radius = outer_radius - thickness
@@ -397,4 +529,149 @@ def create_annular_fiber_section(
         y_coordinates=y_coordinates,
         radial_indices=radial_indices,
         circumferential_indices=circumferential_indices,
+    )
+
+
+def compute_fiber_strains(
+    section: AnnularFiberSection,
+    axial_strain: float,
+    curvature: float,
+) -> FloatArray:
+    """
+    Evaluate the Euler-Bernoulli axial strain at every fiber centroid.
+
+    Positive curvature gives compression at fibers with positive y.
+    """
+    if not isinstance(section, AnnularFiberSection):
+        raise TypeError(
+            "section must be an AnnularFiberSection."
+        )
+
+    axial_strain = _validated_finite_scalar(
+        axial_strain,
+        "axial_strain",
+    )
+    curvature = _validated_finite_scalar(
+        curvature,
+        "curvature",
+    )
+
+    return (
+        axial_strain
+        - curvature * section.y_coordinates
+    ).astype(np.float64, copy=False)
+
+
+def integrate_fiber_stresses(
+    section: AnnularFiberSection,
+    fiber_stresses: FloatArray,
+) -> FloatArray:
+    """
+    Integrate fiber stresses into [axial_force, bending_moment].
+
+    The bending-moment sign convention is
+
+        M = -sum(sigma_f * y_f * A_f).
+    """
+    if not isinstance(section, AnnularFiberSection):
+        raise TypeError(
+            "section must be an AnnularFiberSection."
+        )
+
+    stresses = np.asarray(fiber_stresses, dtype=np.float64)
+
+    if stresses.ndim != 1:
+        raise ValueError(
+            "fiber_stresses must be one-dimensional."
+        )
+    if stresses.size != section.n_fibers:
+        raise ValueError(
+            "fiber_stresses must contain one value per fiber."
+        )
+    if np.any(~np.isfinite(stresses)):
+        raise ValueError("fiber_stresses must be finite.")
+
+    axial_force = float(np.dot(section.areas, stresses))
+    bending_moment = float(
+        -np.dot(
+            section.areas * section.y_coordinates,
+            stresses,
+        )
+    )
+
+    return np.array(
+        [axial_force, bending_moment],
+        dtype=np.float64,
+    )
+
+
+def evaluate_linear_elastic_section(
+    section: AnnularFiberSection,
+    axial_strain: float,
+    curvature: float,
+    elastic_modulus: float,
+) -> ElasticSectionResponse:
+    """
+    Evaluate fiber stresses, section resultants, and tangent stiffness.
+
+    The generalized strain and resultant vectors are
+
+        e = [epsilon_0, kappa]
+        s = [N, M].
+
+    The returned tangent satisfies ds = K_section de.
+    """
+    if not isinstance(section, AnnularFiberSection):
+        raise TypeError(
+            "section must be an AnnularFiberSection."
+        )
+
+    axial_strain = _validated_finite_scalar(
+        axial_strain,
+        "axial_strain",
+    )
+    curvature = _validated_finite_scalar(
+        curvature,
+        "curvature",
+    )
+    elastic_modulus = _validated_positive_scalar(
+        elastic_modulus,
+        "elastic_modulus",
+    )
+
+    fiber_strains = compute_fiber_strains(
+        section=section,
+        axial_strain=axial_strain,
+        curvature=curvature,
+    )
+    fiber_stresses = elastic_modulus * fiber_strains
+    resultants = integrate_fiber_stresses(
+        section=section,
+        fiber_stresses=fiber_stresses,
+    )
+
+    coupling = -elastic_modulus * section.first_moment_y
+    tangent = np.array(
+        [
+            [
+                elastic_modulus * section.area,
+                coupling,
+            ],
+            [
+                coupling,
+                elastic_modulus * section.second_moment_x,
+            ],
+        ],
+        dtype=np.float64,
+    )
+
+    return ElasticSectionResponse(
+        axial_strain=axial_strain,
+        curvature=curvature,
+        elastic_modulus=elastic_modulus,
+        fiber_strains=fiber_strains,
+        fiber_stresses=fiber_stresses,
+        axial_force=float(resultants[0]),
+        bending_moment=float(resultants[1]),
+        tangent=tangent,
     )
