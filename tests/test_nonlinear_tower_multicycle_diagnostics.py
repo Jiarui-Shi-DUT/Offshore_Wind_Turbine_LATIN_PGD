@@ -11,6 +11,7 @@ from examples.nonlinear_tower_multicycle_diagnostics import (
     cycle_indices,
     extract_cycle_diagnostics,
     extract_multicycle_diagnostics,
+    plastic_strain_path_length,
     signed_force_displacement_work,
 )
 from examples.nonlinear_tower_reversed_response import (
@@ -306,6 +307,76 @@ class TestSignedForceDisplacementWork(unittest.TestCase):
                     )
 
 
+
+class TestPlasticStrainPathLength(unittest.TestCase):
+    """Test accumulated absolute plastic-strain path length."""
+
+    def test_reversing_path_exceeds_net_increment(self) -> None:
+        plastic_strains = np.array(
+            [0.0, -0.01, -0.015, 0.005, 0.008],
+            dtype=np.float64,
+        )
+
+        path_length = plastic_strain_path_length(
+            plastic_strains
+        )
+        net_increment = float(
+            plastic_strains[-1] - plastic_strains[0]
+        )
+
+        self.assertAlmostEqual(
+            path_length,
+            0.038,
+            places=15,
+        )
+        self.assertGreater(
+            path_length,
+            abs(net_increment),
+        )
+
+    def test_monotonic_path_equals_absolute_net_increment(
+        self,
+    ) -> None:
+        plastic_strains = np.array(
+            [0.0, 0.01, 0.03, 0.05],
+            dtype=np.float64,
+        )
+
+        path_length = plastic_strain_path_length(
+            plastic_strains
+        )
+
+        self.assertAlmostEqual(
+            path_length,
+            0.05,
+            places=15,
+        )
+        self.assertAlmostEqual(
+            path_length,
+            abs(
+                float(
+                    plastic_strains[-1]
+                    - plastic_strains[0]
+                )
+            ),
+            places=15,
+        )
+
+    def test_invalid_plastic_histories_are_rejected(
+        self,
+    ) -> None:
+        invalid_histories = (
+            np.zeros((2, 2), dtype=np.float64),
+            np.zeros(1, dtype=np.float64),
+            np.array([0.0, np.nan], dtype=np.float64),
+        )
+
+        for values in invalid_histories:
+            with self.subTest(shape=values.shape):
+                with self.assertRaises(ValueError):
+                    plastic_strain_path_length(values)
+
+
 class TestCycleDiagnosticsExtraction(unittest.TestCase):
     """Test scalar extraction from a synthetic multi-cycle history."""
 
@@ -400,6 +471,20 @@ class TestCycleDiagnosticsExtraction(unittest.TestCase):
             cycle.critical_plastic_strain_range,
             2.3e-2,
         )
+        self.assertAlmostEqual(
+            cycle.critical_plastic_strain_path_length,
+            3.8e-2,
+        )
+        self.assertAlmostEqual(
+            cycle
+            .critical_cumulative_plastic_strain_path_at_end,
+            3.8e-2,
+        )
+        self.assertAlmostEqual(
+            cycle.critical_plastic_net_to_path_ratio,
+            8.0 / 38.0,
+            places=15,
+        )
 
         self.assertAlmostEqual(
             cycle.critical_backstress_at_end,
@@ -482,6 +567,20 @@ class TestCycleDiagnosticsExtraction(unittest.TestCase):
             4.0e-3,
         )
         self.assertAlmostEqual(
+            cycle.critical_plastic_strain_path_length,
+            4.0e-2,
+        )
+        self.assertAlmostEqual(
+            cycle
+            .critical_cumulative_plastic_strain_path_at_end,
+            7.8e-2,
+        )
+        self.assertAlmostEqual(
+            cycle.critical_plastic_net_to_path_ratio,
+            0.1,
+            places=15,
+        )
+        self.assertAlmostEqual(
             cycle.residual_displacement,
             0.2,
         )
@@ -533,6 +632,27 @@ class TestMulticycleDiagnostics(unittest.TestCase):
             np.array([15.0, 0.0]),
             rtol=0.0,
             atol=1.0e-12,
+        )
+        np.testing.assert_allclose(
+            self.diagnostics
+            .critical_plastic_strain_path_lengths,
+            np.array([0.038, 0.040]),
+            rtol=0.0,
+            atol=1.0e-15,
+        )
+        np.testing.assert_allclose(
+            self.diagnostics
+            .critical_cumulative_plastic_strain_path_ends,
+            np.array([0.038, 0.078]),
+            rtol=0.0,
+            atol=1.0e-15,
+        )
+        np.testing.assert_allclose(
+            self.diagnostics
+            .critical_plastic_net_to_path_ratios,
+            np.array([8.0 / 38.0, 0.1]),
+            rtol=0.0,
+            atol=1.0e-15,
         )
 
     def test_extracted_arrays_are_defensive(self) -> None:

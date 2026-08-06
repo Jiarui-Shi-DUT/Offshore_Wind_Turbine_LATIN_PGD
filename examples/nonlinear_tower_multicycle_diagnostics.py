@@ -10,6 +10,7 @@ used for:
     - cyclic stabilization assessment;
     - cyclic hardening or softening assessment;
     - residual-displacement and ratcheting assessment;
+    - signed versus accumulated plastic-strain assessment;
     - damage-increment tracking;
     - force-displacement work tracking;
     - LATIN-PGD full-order reference comparisons.
@@ -186,6 +187,9 @@ class CycleDiagnostics:
     critical_plastic_strain_at_end: float
     critical_plastic_strain_increment: float
     critical_plastic_strain_range: float
+    critical_plastic_strain_path_length: float
+    critical_cumulative_plastic_strain_path_at_end: float
+    critical_plastic_net_to_path_ratio: float
 
     critical_backstress_at_positive_peak: float
     critical_backstress_at_negative_peak: float
@@ -242,6 +246,9 @@ class CycleDiagnostics:
             "critical_plastic_strain_at_end",
             "critical_plastic_strain_increment",
             "critical_plastic_strain_range",
+            "critical_plastic_strain_path_length",
+            "critical_cumulative_plastic_strain_path_at_end",
+            "critical_plastic_net_to_path_ratio",
             "critical_backstress_at_positive_peak",
             "critical_backstress_at_negative_peak",
             "maximum_critical_backstress",
@@ -264,6 +271,9 @@ class CycleDiagnostics:
             "displacement_range",
             "critical_stress_range",
             "critical_plastic_strain_range",
+            "critical_plastic_strain_path_length",
+            "critical_cumulative_plastic_strain_path_at_end",
+            "critical_plastic_net_to_path_ratio",
             "critical_backstress_range",
             "maximum_damage_at_start",
             "maximum_damage_at_end",
@@ -366,6 +376,47 @@ class CycleDiagnostics:
         ):
             raise ValueError(
                 "critical_backstress_range is inconsistent with extrema."
+            )
+
+        path_tolerance = 1.0e-14
+        if (
+            abs(self.critical_plastic_strain_increment)
+            > self.critical_plastic_strain_path_length
+            + path_tolerance
+        ):
+            raise ValueError(
+                "Absolute net plastic-strain increment cannot exceed "
+                "the plastic-strain path length."
+            )
+        if (
+            self.critical_cumulative_plastic_strain_path_at_end
+            + path_tolerance
+            < self.critical_plastic_strain_path_length
+        ):
+            raise ValueError(
+                "Cumulative plastic-strain path cannot be smaller "
+                "than the current-cycle path length."
+            )
+
+        if self.critical_plastic_strain_path_length <= path_tolerance:
+            expected_net_to_path_ratio = 0.0
+        else:
+            expected_net_to_path_ratio = float(
+                abs(self.critical_plastic_strain_increment)
+                / self.critical_plastic_strain_path_length
+            )
+        if not np.isclose(
+            self.critical_plastic_net_to_path_ratio,
+            expected_net_to_path_ratio,
+            rtol=1.0e-12,
+            atol=1.0e-14,
+        ):
+            raise ValueError(
+                "critical_plastic_net_to_path_ratio is inconsistent."
+            )
+        if self.critical_plastic_net_to_path_ratio > 1.0 + 1.0e-12:
+            raise ValueError(
+                "critical_plastic_net_to_path_ratio cannot exceed one."
             )
 
         if isinstance(self.maximum_newton_iterations, bool):
@@ -471,9 +522,32 @@ class MulticycleDiagnostics:
 
     @property
     def critical_plastic_strain_increments(self) -> FloatArray:
-        """Return fixed-fiber plastic-strain increment per cycle."""
+        """Return fixed-fiber signed plastic-strain increment per cycle."""
         return self._float_history(
             "critical_plastic_strain_increment"
+        )
+
+    @property
+    def critical_plastic_strain_path_lengths(self) -> FloatArray:
+        """Return accumulated absolute plastic change within each cycle."""
+        return self._float_history(
+            "critical_plastic_strain_path_length"
+        )
+
+    @property
+    def critical_cumulative_plastic_strain_path_ends(
+        self,
+    ) -> FloatArray:
+        """Return cumulative absolute plastic path at each cycle end."""
+        return self._float_history(
+            "critical_cumulative_plastic_strain_path_at_end"
+        )
+
+    @property
+    def critical_plastic_net_to_path_ratios(self) -> FloatArray:
+        """Return |net signed increment| divided by path length."""
+        return self._float_history(
+            "critical_plastic_net_to_path_ratio"
         )
 
     @property
@@ -536,6 +610,43 @@ def cycle_indices(
         first_zero=start + 2 * quarter,
         negative_peak=start + 3 * quarter,
         end=start + increments,
+    )
+
+
+def plastic_strain_path_length(
+    plastic_strains: FloatArray,
+) -> float:
+    """
+    Return the total variation of a signed plastic-strain history.
+
+    For discrete values eps_p[i], the path length is
+
+        sum_i |eps_p[i+1] - eps_p[i]|.
+
+    Unlike the signed end-to-start increment, this quantity is non-negative
+    and records plastic activity in both loading directions. It is a
+    post-processing measure and does not introduce a new constitutive state
+    variable.
+    """
+    values = np.asarray(
+        plastic_strains,
+        dtype=np.float64,
+    )
+    if values.ndim != 1:
+        raise ValueError(
+            "plastic_strains must be one-dimensional."
+        )
+    if values.size < 2:
+        raise ValueError(
+            "At least two plastic-strain values are required."
+        )
+    if np.any(~np.isfinite(values)):
+        raise ValueError(
+            "plastic_strains must be finite."
+        )
+
+    return float(
+        np.sum(np.abs(np.diff(values)))
     )
 
 
@@ -661,6 +772,27 @@ def extract_cycle_diagnostics(
         np.max(critical_plastic_strains)
         - np.min(critical_plastic_strains)
     )
+    critical_plastic_increment = float(
+        critical_plastic_strains[-1]
+        - critical_plastic_strains[0]
+    )
+    critical_plastic_path = plastic_strain_path_length(
+        critical_plastic_strains
+    )
+    cumulative_critical_plastic_path = (
+        plastic_strain_path_length(
+            response.critical_fiber_plastic_strains[
+                : indices.end + 1
+            ]
+        )
+    )
+    if critical_plastic_path <= 1.0e-14:
+        critical_plastic_net_to_path_ratio = 0.0
+    else:
+        critical_plastic_net_to_path_ratio = float(
+            abs(critical_plastic_increment)
+            / critical_plastic_path
+        )
 
     maximum_damage_start = float(
         maximum_damages[indices.start]
@@ -732,16 +864,20 @@ def extract_cycle_diagnostics(
                 indices.end
             ]
         ),
-        critical_plastic_strain_increment=float(
-            response.critical_fiber_plastic_strains[
-                indices.end
-            ]
-            - response.critical_fiber_plastic_strains[
-                indices.start
-            ]
+        critical_plastic_strain_increment=(
+            critical_plastic_increment
         ),
         critical_plastic_strain_range=(
             critical_plastic_range
+        ),
+        critical_plastic_strain_path_length=(
+            critical_plastic_path
+        ),
+        critical_cumulative_plastic_strain_path_at_end=(
+            cumulative_critical_plastic_path
+        ),
+        critical_plastic_net_to_path_ratio=(
+            critical_plastic_net_to_path_ratio
         ),
         critical_backstress_at_positive_peak=float(
             response.critical_fiber_backstresses[
