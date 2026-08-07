@@ -29,7 +29,7 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import dataclass
-from typing import Tuple
+from typing import Tuple, Union
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -41,6 +41,7 @@ from examples.elastic_tapered_tower import (
 )
 from fem.beam_column_2d import create_uniform_vertical_tower_mesh
 from fem.tower_loading import (
+    AsymmetricCyclicTopForceHistory,
     ReversedTopForceHistory,
     create_reversed_top_force_history,
 )
@@ -65,7 +66,10 @@ FiberLocation = Tuple[int, int, int]
 class NonlinearReversedResponse:
     """Global and fiber histories from a fully reversed tower analysis."""
 
-    loading: ReversedTopForceHistory
+    loading: Union[
+        ReversedTopForceHistory,
+        AsymmetricCyclicTopForceHistory,
+    ]
     material: MaterialParameters
     analysis_times: FloatArray
     top_displacements: FloatArray
@@ -84,10 +88,13 @@ class NonlinearReversedResponse:
     def __post_init__(self) -> None:
         if not isinstance(
             self.loading,
-            ReversedTopForceHistory,
+            (
+                ReversedTopForceHistory,
+                AsymmetricCyclicTopForceHistory,
+            ),
         ):
             raise TypeError(
-                "loading must be a ReversedTopForceHistory."
+                "loading must be a supported cyclic force history."
             )
         if not isinstance(
             self.material,
@@ -461,6 +468,10 @@ class NonlinearReversedResponse:
     ) -> FloatArray:
         """Return the damage energy-release-rate history."""
         return self._critical_evaluated_quantity(6)
+
+
+# Backward-compatible generic name for cyclic response containers.
+NonlinearCyclicResponse = NonlinearReversedResponse
 
 
 def snapshot_fiber_fields(
