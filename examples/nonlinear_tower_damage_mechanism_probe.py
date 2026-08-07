@@ -109,6 +109,18 @@ class DamageMechanismCycleComparison:
     undamaged_plastic_strain_end: float
     plastic_strain_end_difference: float
 
+    coupled_plastic_strain_path_length: float
+    undamaged_plastic_strain_path_length: float
+    plastic_strain_path_length_relative_difference: float
+
+    coupled_cumulative_plastic_strain_path_end: float
+    undamaged_cumulative_plastic_strain_path_end: float
+    cumulative_plastic_strain_path_relative_difference: float
+
+    coupled_plastic_net_to_path_ratio: float
+    undamaged_plastic_net_to_path_ratio: float
+    plastic_net_to_path_ratio_difference: float
+
     coupled_external_work: float
     undamaged_external_work: float
     external_work_relative_difference: float
@@ -145,6 +157,15 @@ class DamageMechanismCycleComparison:
             "coupled_plastic_strain_end",
             "undamaged_plastic_strain_end",
             "plastic_strain_end_difference",
+            "coupled_plastic_strain_path_length",
+            "undamaged_plastic_strain_path_length",
+            "plastic_strain_path_length_relative_difference",
+            "coupled_cumulative_plastic_strain_path_end",
+            "undamaged_cumulative_plastic_strain_path_end",
+            "cumulative_plastic_strain_path_relative_difference",
+            "coupled_plastic_net_to_path_ratio",
+            "undamaged_plastic_net_to_path_ratio",
+            "plastic_net_to_path_ratio_difference",
             "coupled_external_work",
             "undamaged_external_work",
             "external_work_relative_difference",
@@ -164,6 +185,12 @@ class DamageMechanismCycleComparison:
             "undamaged_displacement_range",
             "coupled_stress_range",
             "undamaged_stress_range",
+            "coupled_plastic_strain_path_length",
+            "undamaged_plastic_strain_path_length",
+            "coupled_cumulative_plastic_strain_path_end",
+            "undamaged_cumulative_plastic_strain_path_end",
+            "coupled_plastic_net_to_path_ratio",
+            "undamaged_plastic_net_to_path_ratio",
             "coupled_external_work",
             "undamaged_external_work",
             "coupled_maximum_damage_end",
@@ -235,6 +262,61 @@ class DamageMechanismCycleComparison:
                 "stress_range_relative_difference "
                 "is inconsistent."
             )
+
+        expected_path_relative = relative_difference(
+            self.coupled_plastic_strain_path_length,
+            self.undamaged_plastic_strain_path_length,
+        )
+        if not np.isclose(
+            self.plastic_strain_path_length_relative_difference,
+            expected_path_relative,
+            rtol=1.0e-12,
+            atol=1.0e-15,
+        ):
+            raise ValueError(
+                "plastic_strain_path_length_relative_difference "
+                "is inconsistent."
+            )
+
+        expected_cumulative_path_relative = relative_difference(
+            self.coupled_cumulative_plastic_strain_path_end,
+            self.undamaged_cumulative_plastic_strain_path_end,
+        )
+        if not np.isclose(
+            self.cumulative_plastic_strain_path_relative_difference,
+            expected_cumulative_path_relative,
+            rtol=1.0e-12,
+            atol=1.0e-15,
+        ):
+            raise ValueError(
+                "cumulative_plastic_strain_path_relative_difference "
+                "is inconsistent."
+            )
+
+        expected_ratio_difference = (
+            self.coupled_plastic_net_to_path_ratio
+            - self.undamaged_plastic_net_to_path_ratio
+        )
+        if not np.isclose(
+            self.plastic_net_to_path_ratio_difference,
+            expected_ratio_difference,
+            rtol=1.0e-12,
+            atol=1.0e-15,
+        ):
+            raise ValueError(
+                "plastic_net_to_path_ratio_difference "
+                "is inconsistent."
+            )
+
+        ratio_tolerance = 1.0e-12
+        for ratio_name in (
+            "coupled_plastic_net_to_path_ratio",
+            "undamaged_plastic_net_to_path_ratio",
+        ):
+            if getattr(self, ratio_name) > 1.0 + ratio_tolerance:
+                raise ValueError(
+                    ratio_name + " must not exceed one."
+                )
 
         expected_work_relative = relative_difference(
             self.coupled_external_work,
@@ -391,6 +473,33 @@ class DamageMechanismComparison:
         """Return damage-induced stress-range changes."""
         return self._history(
             "stress_range_relative_difference"
+        )
+
+    @property
+    def plastic_strain_path_length_relative_differences(
+        self,
+    ) -> FloatArray:
+        """Return damage-induced per-cycle plastic-path changes."""
+        return self._history(
+            "plastic_strain_path_length_relative_difference"
+        )
+
+    @property
+    def cumulative_plastic_strain_path_relative_differences(
+        self,
+    ) -> FloatArray:
+        """Return damage-induced cumulative plastic-path changes."""
+        return self._history(
+            "cumulative_plastic_strain_path_relative_difference"
+        )
+
+    @property
+    def plastic_net_to_path_ratio_differences(
+        self,
+    ) -> FloatArray:
+        """Return coupled-minus-disabled net/path ratios."""
+        return self._history(
+            "plastic_net_to_path_ratio_difference"
         )
 
     @property
@@ -561,6 +670,52 @@ def compare_cycle_diagnostics(
                     .critical_plastic_strain_at_end
                     - disabled_cycle
                     .critical_plastic_strain_at_end
+                ),
+                coupled_plastic_strain_path_length=(
+                    coupled_cycle
+                    .critical_plastic_strain_path_length
+                ),
+                undamaged_plastic_strain_path_length=(
+                    disabled_cycle
+                    .critical_plastic_strain_path_length
+                ),
+                plastic_strain_path_length_relative_difference=(
+                    relative_difference(
+                        coupled_cycle
+                        .critical_plastic_strain_path_length,
+                        disabled_cycle
+                        .critical_plastic_strain_path_length,
+                    )
+                ),
+                coupled_cumulative_plastic_strain_path_end=(
+                    coupled_cycle
+                    .critical_cumulative_plastic_strain_path_at_end
+                ),
+                undamaged_cumulative_plastic_strain_path_end=(
+                    disabled_cycle
+                    .critical_cumulative_plastic_strain_path_at_end
+                ),
+                cumulative_plastic_strain_path_relative_difference=(
+                    relative_difference(
+                        coupled_cycle
+                        .critical_cumulative_plastic_strain_path_at_end,
+                        disabled_cycle
+                        .critical_cumulative_plastic_strain_path_at_end,
+                    )
+                ),
+                coupled_plastic_net_to_path_ratio=(
+                    coupled_cycle
+                    .critical_plastic_net_to_path_ratio
+                ),
+                undamaged_plastic_net_to_path_ratio=(
+                    disabled_cycle
+                    .critical_plastic_net_to_path_ratio
+                ),
+                plastic_net_to_path_ratio_difference=(
+                    coupled_cycle
+                    .critical_plastic_net_to_path_ratio
+                    - disabled_cycle
+                    .critical_plastic_net_to_path_ratio
                 ),
                 coupled_external_work=(
                     coupled_cycle.external_work_magnitude
@@ -741,6 +896,26 @@ def print_comparison(
             f"{cycle.plastic_strain_end_difference:12.5e}"
         )
 
+    print("-" * 188)
+    print(
+        "cycle   path,c        path,0        rel.diff path   "
+        "cum.path,c    cum.path,0    rel.diff cum    "
+        "|net|/path,c  |net|/path,0  difference"
+    )
+    for cycle in comparison.cycles:
+        print(
+            f"{cycle.cycle_number:5d}  "
+            f"{cycle.coupled_plastic_strain_path_length:12.5e}  "
+            f"{cycle.undamaged_plastic_strain_path_length:12.5e}  "
+            f"{cycle.plastic_strain_path_length_relative_difference:12.5e}  "
+            f"{cycle.coupled_cumulative_plastic_strain_path_end:12.5e}  "
+            f"{cycle.undamaged_cumulative_plastic_strain_path_end:12.5e}  "
+            f"{cycle.cumulative_plastic_strain_path_relative_difference:12.5e}  "
+            f"{cycle.coupled_plastic_net_to_path_ratio:12.5e}  "
+            f"{cycle.undamaged_plastic_net_to_path_ratio:12.5e}  "
+            f"{cycle.plastic_net_to_path_ratio_difference:12.5e}"
+        )
+
     final_cycle = comparison.cycles[-1]
     print("-" * 188)
     print(
@@ -754,6 +929,19 @@ def print_comparison(
     print(
         "Final-cycle damage-induced external-work change: "
         f"{100.0 * final_cycle.external_work_relative_difference:.6f}%"
+    )
+    print(
+        "Final-cycle damage-induced plastic-path change: "
+        f"{100.0 * final_cycle.plastic_strain_path_length_relative_difference:.6f}%"
+    )
+    print(
+        "Final cumulative plastic-path change: "
+        f"{100.0 * final_cycle.cumulative_plastic_strain_path_relative_difference:.6f}%"
+    )
+    print(
+        "Final net-to-path ratios, coupled / disabled: "
+        f"{final_cycle.coupled_plastic_net_to_path_ratio:.6e} / "
+        f"{final_cycle.undamaged_plastic_net_to_path_ratio:.6e}"
     )
     print(
         "Maximum damage in disabled case: "

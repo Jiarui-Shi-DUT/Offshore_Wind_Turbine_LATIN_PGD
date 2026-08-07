@@ -250,6 +250,14 @@ class TestDamageMechanismComparison(unittest.TestCase):
                     cycle.coupled_stress_range,
                     cycle.undamaged_stress_range,
                 )
+                expected_path = relative_difference(
+                    cycle.coupled_plastic_strain_path_length,
+                    cycle.undamaged_plastic_strain_path_length,
+                )
+                expected_cumulative_path = relative_difference(
+                    cycle.coupled_cumulative_plastic_strain_path_end,
+                    cycle.undamaged_cumulative_plastic_strain_path_end,
+                )
                 expected_work = relative_difference(
                     cycle.coupled_external_work,
                     cycle.undamaged_external_work,
@@ -267,9 +275,106 @@ class TestDamageMechanismComparison(unittest.TestCase):
                     places=15,
                 )
                 self.assertAlmostEqual(
+                    cycle
+                    .plastic_strain_path_length_relative_difference,
+                    expected_path,
+                    places=15,
+                )
+                self.assertAlmostEqual(
+                    cycle
+                    .cumulative_plastic_strain_path_relative_difference,
+                    expected_cumulative_path,
+                    places=15,
+                )
+                self.assertAlmostEqual(
                     cycle.external_work_relative_difference,
                     expected_work,
                     places=15,
+                )
+
+    def test_plastic_path_metrics_match_cycle_diagnostics(
+        self,
+    ) -> None:
+        coupled_cycles = self.comparison.coupled.diagnostics.cycles
+        disabled_cycles = (
+            self.comparison.damage_disabled.diagnostics.cycles
+        )
+
+        for comparison_cycle, coupled, disabled in zip(
+            self.comparison.cycles,
+            coupled_cycles,
+            disabled_cycles,
+        ):
+            with self.subTest(
+                cycle=comparison_cycle.cycle_number
+            ):
+                self.assertAlmostEqual(
+                    comparison_cycle
+                    .coupled_plastic_strain_path_length,
+                    coupled.critical_plastic_strain_path_length,
+                    places=15,
+                )
+                self.assertAlmostEqual(
+                    comparison_cycle
+                    .undamaged_plastic_strain_path_length,
+                    disabled.critical_plastic_strain_path_length,
+                    places=15,
+                )
+                self.assertAlmostEqual(
+                    comparison_cycle
+                    .coupled_cumulative_plastic_strain_path_end,
+                    coupled
+                    .critical_cumulative_plastic_strain_path_at_end,
+                    places=15,
+                )
+                self.assertAlmostEqual(
+                    comparison_cycle
+                    .undamaged_cumulative_plastic_strain_path_end,
+                    disabled
+                    .critical_cumulative_plastic_strain_path_at_end,
+                    places=15,
+                )
+                self.assertAlmostEqual(
+                    comparison_cycle
+                    .coupled_plastic_net_to_path_ratio,
+                    coupled.critical_plastic_net_to_path_ratio,
+                    places=15,
+                )
+                self.assertAlmostEqual(
+                    comparison_cycle
+                    .undamaged_plastic_net_to_path_ratio,
+                    disabled.critical_plastic_net_to_path_ratio,
+                    places=15,
+                )
+                self.assertGreaterEqual(
+                    comparison_cycle
+                    .coupled_plastic_strain_path_length,
+                    0.0,
+                )
+                self.assertGreaterEqual(
+                    comparison_cycle
+                    .undamaged_plastic_strain_path_length,
+                    0.0,
+                )
+                self.assertGreaterEqual(
+                    comparison_cycle
+                    .coupled_plastic_net_to_path_ratio,
+                    0.0,
+                )
+                self.assertLessEqual(
+                    comparison_cycle
+                    .coupled_plastic_net_to_path_ratio,
+                    1.0 + 1.0e-12,
+                )
+                self.assertGreaterEqual(
+                    comparison_cycle
+                    .undamaged_plastic_net_to_path_ratio,
+                    0.0,
+                )
+                self.assertLessEqual(
+                    comparison_cycle
+                    .undamaged_plastic_net_to_path_ratio,
+                    1.0 + 1.0e-12,
                 )
 
     def test_response_quantities_are_finite(self) -> None:
@@ -278,6 +383,12 @@ class TestDamageMechanismComparison(unittest.TestCase):
             .displacement_range_relative_differences,
             self.comparison
             .stress_range_relative_differences,
+            self.comparison
+            .plastic_strain_path_length_relative_differences,
+            self.comparison
+            .cumulative_plastic_strain_path_relative_differences,
+            self.comparison
+            .plastic_net_to_path_ratio_differences,
             self.comparison
             .external_work_relative_differences,
             self.comparison.coupled_damage_ends,
@@ -296,6 +407,19 @@ class TestDamageMechanismComparison(unittest.TestCase):
                 cycle.coupled_plastic_strain_end,
                 cycle.undamaged_plastic_strain_end,
                 cycle.plastic_strain_end_difference,
+                cycle.coupled_plastic_strain_path_length,
+                cycle.undamaged_plastic_strain_path_length,
+                cycle
+                .plastic_strain_path_length_relative_difference,
+                cycle
+                .coupled_cumulative_plastic_strain_path_end,
+                cycle
+                .undamaged_cumulative_plastic_strain_path_end,
+                cycle
+                .cumulative_plastic_strain_path_relative_difference,
+                cycle.coupled_plastic_net_to_path_ratio,
+                cycle.undamaged_plastic_net_to_path_ratio,
+                cycle.plastic_net_to_path_ratio_difference,
             )
             self.assertTrue(
                 np.all(
