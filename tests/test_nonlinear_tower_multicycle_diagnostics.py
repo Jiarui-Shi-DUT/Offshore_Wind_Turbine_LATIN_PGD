@@ -17,7 +17,10 @@ from examples.nonlinear_tower_multicycle_diagnostics import (
 from examples.nonlinear_tower_reversed_response import (
     NonlinearReversedResponse,
 )
-from fem.tower_loading import create_reversed_top_force_history
+from fem.tower_loading import (
+    create_asymmetric_cyclic_top_force_history,
+    create_reversed_top_force_history,
+)
 from material.viscoplastic_damage_1d import MaterialParameters
 
 
@@ -190,6 +193,39 @@ def create_synthetic_multicycle_response(
     )
 
 
+def create_synthetic_asymmetric_multicycle_response(
+) -> NonlinearReversedResponse:
+    """Create the same synthetic response under R_F=-0.5 loading."""
+    reference = create_synthetic_multicycle_response()
+    loading = create_asymmetric_cyclic_top_force_history(
+        maximum_force=100.0,
+        force_ratio=-0.5,
+        period=10.0,
+        n_cycles=2,
+        increments_per_cycle=4,
+    )
+
+    return NonlinearReversedResponse(
+        loading=loading,
+        material=reference.material,
+        analysis_times=(
+            loading.time_increment + loading.times
+        ),
+        top_displacements=reference.top_displacements,
+        top_rotations=reference.top_rotations,
+        base_horizontal_reactions=-loading.forces,
+        base_moment_reactions=-10.0 * loading.forces,
+        iterations=reference.iterations,
+        residual_norms=reference.residual_norms,
+        fiber_strains=reference.fiber_strains,
+        fiber_stresses=reference.fiber_stresses,
+        fiber_states=reference.fiber_states,
+        critical_location=reference.critical_location,
+        critical_height=reference.critical_height,
+        critical_y_coordinate=reference.critical_y_coordinate,
+    )
+
+
 class TestCycleIndices(unittest.TestCase):
     """Test exact indexing of complete reversed cycles."""
 
@@ -242,6 +278,102 @@ class TestCycleIndices(unittest.TestCase):
                         loading=self.loading,
                         cycle_number=value,
                     )
+
+
+class TestAsymmetricCycleDiagnostics(unittest.TestCase):
+    """Verify cycle diagnostics for sign-reversing asymmetric loading."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.response = (
+            create_synthetic_asymmetric_multicycle_response()
+        )
+        cls.loading = cls.response.loading
+
+    def test_cycle_indices_use_same_quarter_cycle_geometry(self) -> None:
+        indices = cycle_indices(
+            loading=self.loading,
+            cycle_number=1,
+        )
+
+        self.assertEqual(indices.start, 0)
+        self.assertEqual(indices.positive_peak, 1)
+        self.assertEqual(
+            indices.midpoint_after_positive_peak,
+            2,
+        )
+        self.assertEqual(indices.negative_peak, 3)
+        self.assertEqual(indices.end, 4)
+
+        actual_forces = self.loading.forces[
+            np.array(
+                [
+                    indices.start,
+                    indices.positive_peak,
+                    indices.midpoint_after_positive_peak,
+                    indices.negative_peak,
+                    indices.end,
+                ],
+                dtype=np.int64,
+            )
+        ]
+        expected_forces = np.array(
+            [
+                self.loading.mean_force,
+                self.loading.maximum_force,
+                self.loading.mean_force,
+                self.loading.minimum_force,
+                self.loading.mean_force,
+            ],
+            dtype=np.float64,
+        )
+        np.testing.assert_allclose(
+            actual_forces,
+            expected_forces,
+            rtol=0.0,
+            atol=1.0e-12,
+        )
+
+    def test_cycle_extraction_accepts_asymmetric_loading(self) -> None:
+        cycle = extract_cycle_diagnostics(
+            response=self.response,
+            cycle_number=1,
+        )
+
+        self.assertAlmostEqual(
+            cycle.displacement_at_positive_peak,
+            1.0,
+        )
+        self.assertAlmostEqual(
+            cycle.displacement_at_negative_peak,
+            -0.8,
+        )
+        self.assertAlmostEqual(
+            cycle.cycle_end_displacement,
+            0.1,
+        )
+        self.assertAlmostEqual(
+            cycle.critical_plastic_strain_path_length,
+            3.8e-2,
+        )
+
+    def test_multicycle_exposes_same_force_cycle_end_history(self) -> None:
+        diagnostics = extract_multicycle_diagnostics(
+            response=self.response,
+        )
+
+        np.testing.assert_allclose(
+            diagnostics.cycle_end_displacements,
+            np.array([0.1, 0.2], dtype=np.float64),
+            rtol=0.0,
+            atol=1.0e-15,
+        )
+        np.testing.assert_allclose(
+            diagnostics.residual_displacements,
+            diagnostics.cycle_end_displacements,
+            rtol=0.0,
+            atol=0.0,
+        )
 
 
 class TestSignedForceDisplacementWork(unittest.TestCase):

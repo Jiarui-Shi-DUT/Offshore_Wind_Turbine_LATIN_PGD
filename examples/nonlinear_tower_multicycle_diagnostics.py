@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """
-Per-cycle diagnostics for fully reversed nonlinear tower responses.
+Per-cycle diagnostics for nonlinear cyclic tower responses.
 
-This module converts one multi-cycle ``NonlinearReversedResponse`` into
+This module converts one multi-cycle nonlinear cyclic response into
 cycle-by-cycle scalar diagnostics. The extraction is deliberately separated
 from the nonlinear solver so that the same full-order response can later be
 used for:
@@ -17,7 +17,9 @@ used for:
 
 One cycle is indexed by the five exact loading checkpoints
 
-    0 -> +F_a -> 0 -> -F_a -> 0.
+    F_ref -> F_max -> F_ref -> F_min -> F_ref.
+
+Here F_ref is zero for fully reversed loading and F_mean for positive-mean asymmetric loading.
 
 The force-displacement line integral is stored as external work. Before a
 closed stabilized loop is reached, it must not automatically be interpreted
@@ -28,7 +30,7 @@ between the beginning and end of a cycle.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Tuple
+from typing import Tuple, Union
 
 import numpy as np
 from numpy.typing import NDArray
@@ -36,7 +38,10 @@ from numpy.typing import NDArray
 from examples.nonlinear_tower_reversed_response import (
     NonlinearReversedResponse,
 )
-from fem.tower_loading import ReversedTopForceHistory
+from fem.tower_loading import (
+    AsymmetricCyclicTopForceHistory,
+    ReversedTopForceHistory,
+)
 
 
 FloatArray = NDArray[np.float64]
@@ -160,6 +165,17 @@ class CycleIndices:
     def slice(self) -> slice:
         """Return an inclusive Python slice for the cycle."""
         return slice(self.start, self.end + 1)
+
+    @property
+    def midpoint_after_positive_peak(self) -> int:
+        """
+        Return the half-cycle checkpoint after the positive peak.
+
+        For fully reversed loading this checkpoint is zero force. For
+        asymmetric loading it is the non-zero mean force. ``first_zero`` is
+        retained as the stored legacy field for backward compatibility.
+        """
+        return int(self.first_zero)
 
 
 @dataclass(frozen=True)
@@ -448,6 +464,17 @@ class CycleDiagnostics:
             cycle_number,
         )
 
+    @property
+    def cycle_end_displacement(self) -> float:
+        """
+        Return displacement at the common start/end force of this cycle.
+
+        For fully reversed loading this is the zero-force residual
+        displacement. For asymmetric loading this is the displacement at
+        F_mean and is the appropriate same-force drift measure.
+        """
+        return float(self.residual_displacement)
+
 
 @dataclass(frozen=True)
 class MulticycleDiagnostics:
@@ -500,7 +527,21 @@ class MulticycleDiagnostics:
 
     @property
     def residual_displacements(self) -> FloatArray:
-        """Return the zero-force end displacement of every cycle."""
+        """
+        Return the legacy cycle-end displacement history.
+
+        It is a zero-force residual only for fully reversed loading.
+        """
+        return self._float_history("residual_displacement")
+
+    @property
+    def cycle_end_displacements(self) -> FloatArray:
+        """
+        Return displacement at the common cycle start/end force.
+
+        For asymmetric loading this is the displacement at F_mean and is the
+        same-force quantity used to track cyclic drift or ratcheting.
+        """
         return self._float_history("residual_displacement")
 
     @property
@@ -586,13 +627,22 @@ class MulticycleDiagnostics:
 
 
 def cycle_indices(
-    loading: ReversedTopForceHistory,
+    loading: Union[
+        ReversedTopForceHistory,
+        AsymmetricCyclicTopForceHistory,
+    ],
     cycle_number: int,
 ) -> CycleIndices:
-    """Return exact checkpoint indices for one one-based cycle."""
-    if not isinstance(loading, ReversedTopForceHistory):
+    """Return exact quarter-cycle checkpoints for one one-based cycle."""
+    if not isinstance(
+        loading,
+        (
+            ReversedTopForceHistory,
+            AsymmetricCyclicTopForceHistory,
+        ),
+    ):
         raise TypeError(
-            "loading must be a ReversedTopForceHistory."
+            "loading must be a supported cyclic force history."
         )
     cycle_number = _validated_cycle_number(
         cycle_number,
