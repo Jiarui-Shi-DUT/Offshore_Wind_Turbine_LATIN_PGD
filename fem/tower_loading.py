@@ -334,6 +334,269 @@ def create_pulsating_top_force_history(
 
 
 @dataclass(frozen=True)
+class AsymmetricCyclicTopForceHistory:
+    "Positive-mean, sign-reversing asymmetric sinusoidal force history."
+
+    maximum_force: float
+    force_ratio: float
+    period: float
+    n_cycles: int
+    increments_per_cycle: int
+    times: FloatArray
+    forces: FloatArray
+
+    def __post_init__(self) -> None:
+        maximum_force = _validated_positive_scalar(
+            self.maximum_force,
+            "maximum_force",
+        )
+        force_ratio = _validated_finite_scalar(
+            self.force_ratio,
+            "force_ratio",
+        )
+        period = _validated_positive_scalar(
+            self.period,
+            "period",
+        )
+        n_cycles = _validated_integer(
+            self.n_cycles,
+            "n_cycles",
+        )
+        increments_per_cycle = _validated_integer(
+            self.increments_per_cycle,
+            "increments_per_cycle",
+        )
+
+        if force_ratio <= -1.0 or force_ratio >= 0.0:
+            raise ValueError(
+                "force_ratio must lie strictly in (-1, 0) for a "
+                "positive-mean sign-reversing asymmetric force."
+            )
+        if n_cycles < 1:
+            raise ValueError("n_cycles must be at least 1.")
+        if increments_per_cycle < 4:
+            raise ValueError(
+                "increments_per_cycle must be at least 4."
+            )
+        if increments_per_cycle % 4 != 0:
+            raise ValueError(
+                "increments_per_cycle must be divisible by 4."
+            )
+
+        times = np.asarray(self.times, dtype=np.float64)
+        forces = np.asarray(self.forces, dtype=np.float64)
+
+        expected_size = (
+            n_cycles * increments_per_cycle + 1
+        )
+        if times.shape != (expected_size,):
+            raise ValueError(
+                "times must contain "
+                "n_cycles * increments_per_cycle + 1 values."
+            )
+        if forces.shape != times.shape:
+            raise ValueError("forces must match times.")
+        if np.any(~np.isfinite(times)):
+            raise ValueError("times must be finite.")
+        if np.any(~np.isfinite(forces)):
+            raise ValueError("forces must be finite.")
+        if np.any(np.diff(times) <= 0.0):
+            raise ValueError(
+                "times must be strictly increasing."
+            )
+
+        object.__setattr__(
+            self,
+            "maximum_force",
+            maximum_force,
+        )
+        object.__setattr__(
+            self,
+            "force_ratio",
+            force_ratio,
+        )
+        object.__setattr__(self, "period", period)
+        object.__setattr__(self, "n_cycles", n_cycles)
+        object.__setattr__(
+            self,
+            "increments_per_cycle",
+            increments_per_cycle,
+        )
+        object.__setattr__(self, "times", times)
+        object.__setattr__(self, "forces", forces)
+
+    @property
+    def minimum_force(self) -> float:
+        "Return F_min = R_F * F_max."
+        return float(
+            self.force_ratio * self.maximum_force
+        )
+
+    @property
+    def mean_force(self) -> float:
+        "Return the non-zero sinusoidal mean force."
+        return float(
+            0.5
+            * (self.maximum_force + self.minimum_force)
+        )
+
+    @property
+    def force_amplitude(self) -> float:
+        "Return half of the peak-to-peak force range."
+        return float(
+            0.5
+            * (self.maximum_force - self.minimum_force)
+        )
+
+    @property
+    def angular_frequency(self) -> float:
+        "Return omega = 2*pi/T."
+        return float(2.0 * np.pi / self.period)
+
+    @property
+    def time_increment(self) -> float:
+        "Return the uniform time increment."
+        return float(
+            self.period / self.increments_per_cycle
+        )
+
+    @property
+    def n_time_points(self) -> int:
+        "Return the number of stored time points."
+        return int(self.times.size)
+
+
+def evaluate_asymmetric_cyclic_top_force(
+    time: FloatArray,
+    maximum_force: float,
+    force_ratio: float = -0.5,
+    period: float = 1.0,
+) -> FloatArray:
+    "Evaluate a positive-mean sign-reversing asymmetric sinusoid."
+    maximum_force = _validated_positive_scalar(
+        maximum_force,
+        "maximum_force",
+    )
+    force_ratio = _validated_finite_scalar(
+        force_ratio,
+        "force_ratio",
+    )
+    period = _validated_positive_scalar(period, "period")
+
+    if force_ratio <= -1.0 or force_ratio >= 0.0:
+        raise ValueError(
+            "force_ratio must lie strictly in (-1, 0) for a "
+            "positive-mean sign-reversing asymmetric force."
+        )
+
+    times = np.asarray(time, dtype=np.float64)
+    if np.any(~np.isfinite(times)):
+        raise ValueError("time must be finite.")
+
+    minimum_force = force_ratio * maximum_force
+    mean_force = 0.5 * (
+        maximum_force + minimum_force
+    )
+    force_amplitude = 0.5 * (
+        maximum_force - minimum_force
+    )
+    angular_frequency = 2.0 * np.pi / period
+
+    forces = np.asarray(
+        mean_force
+        + force_amplitude
+        * np.sin(angular_frequency * times),
+        dtype=np.float64,
+    )
+
+    scale = max(
+        abs(maximum_force),
+        abs(minimum_force),
+        abs(mean_force),
+    )
+    snap_tolerance = (
+        32.0 * np.finfo(np.float64).eps * scale
+    )
+    for exact_value in (
+        mean_force,
+        maximum_force,
+        minimum_force,
+    ):
+        forces = np.where(
+            np.abs(forces - exact_value)
+            <= snap_tolerance,
+            exact_value,
+            forces,
+        )
+
+    return np.asarray(forces, dtype=np.float64)
+
+
+def create_asymmetric_cyclic_top_force_history(
+    maximum_force: float,
+    force_ratio: float = -0.5,
+    period: float = 1.0,
+    n_cycles: int = 1,
+    increments_per_cycle: int = 100,
+) -> AsymmetricCyclicTopForceHistory:
+    "Create uniformly sampled asymmetric sign-reversing periodic cycles."
+    maximum_force = _validated_positive_scalar(
+        maximum_force,
+        "maximum_force",
+    )
+    force_ratio = _validated_finite_scalar(
+        force_ratio,
+        "force_ratio",
+    )
+    period = _validated_positive_scalar(period, "period")
+    n_cycles = _validated_integer(n_cycles, "n_cycles")
+    increments_per_cycle = _validated_integer(
+        increments_per_cycle,
+        "increments_per_cycle",
+    )
+
+    if force_ratio <= -1.0 or force_ratio >= 0.0:
+        raise ValueError(
+            "force_ratio must lie strictly in (-1, 0) for a "
+            "positive-mean sign-reversing asymmetric force."
+        )
+    if n_cycles < 1:
+        raise ValueError("n_cycles must be at least 1.")
+    if increments_per_cycle < 4:
+        raise ValueError(
+            "increments_per_cycle must be at least 4."
+        )
+    if increments_per_cycle % 4 != 0:
+        raise ValueError(
+            "increments_per_cycle must be divisible by 4."
+        )
+
+    n_increments = n_cycles * increments_per_cycle
+    times = np.linspace(
+        0.0,
+        n_cycles * period,
+        n_increments + 1,
+        dtype=np.float64,
+    )
+    forces = evaluate_asymmetric_cyclic_top_force(
+        time=times,
+        maximum_force=maximum_force,
+        force_ratio=force_ratio,
+        period=period,
+    )
+
+    return AsymmetricCyclicTopForceHistory(
+        maximum_force=maximum_force,
+        force_ratio=force_ratio,
+        period=period,
+        n_cycles=n_cycles,
+        increments_per_cycle=increments_per_cycle,
+        times=times,
+        forces=forces,
+    )
+
+
+@dataclass(frozen=True)
 class ReversedTopForceHistory:
     """
     Discrete zero-mean fully reversed sinusoidal tower-top force.

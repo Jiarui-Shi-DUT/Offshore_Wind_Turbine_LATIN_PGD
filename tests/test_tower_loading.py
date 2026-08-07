@@ -6,8 +6,10 @@ import unittest
 import numpy as np
 
 from fem.tower_loading import (
+    create_asymmetric_cyclic_top_force_history,
     create_pulsating_top_force_history,
     create_reversed_top_force_history,
+    evaluate_asymmetric_cyclic_top_force,
     evaluate_pulsating_top_force,
     evaluate_reversed_top_force,
 )
@@ -236,6 +238,198 @@ class TestTowerLoading(unittest.TestCase):
         with self.assertRaises(TypeError):
             create_pulsating_top_force_history(
                 maximum_force=self.maximum_force,
+                n_cycles=1.5,
+            )
+
+
+class TestAsymmetricCyclicTowerLoading(unittest.TestCase):
+    "Verify positive-mean sign-reversing asymmetric cyclic loading."
+
+    def setUp(self) -> None:
+        self.maximum_force = 1.0e6
+        self.force_ratio = -0.5
+        self.period = 2.0
+
+    def test_force_parameters_for_ratio_minus_point_five(self) -> None:
+        history = create_asymmetric_cyclic_top_force_history(
+            maximum_force=self.maximum_force,
+            force_ratio=self.force_ratio,
+            period=self.period,
+            n_cycles=1,
+            increments_per_cycle=100,
+        )
+
+        self.assertAlmostEqual(
+            history.minimum_force,
+            -0.5 * self.maximum_force,
+            places=8,
+        )
+        self.assertAlmostEqual(
+            history.mean_force,
+            0.25 * self.maximum_force,
+            places=8,
+        )
+        self.assertAlmostEqual(
+            history.force_amplitude,
+            0.75 * self.maximum_force,
+            places=8,
+        )
+        self.assertLess(history.minimum_force, 0.0)
+        self.assertGreater(history.maximum_force, 0.0)
+
+    def test_quarter_cycle_values_are_exact(self) -> None:
+        history = create_asymmetric_cyclic_top_force_history(
+            maximum_force=self.maximum_force,
+            force_ratio=self.force_ratio,
+            period=self.period,
+            n_cycles=1,
+            increments_per_cycle=100,
+        )
+
+        quarter = history.increments_per_cycle // 4
+        indices = np.array(
+            [
+                0,
+                quarter,
+                2 * quarter,
+                3 * quarter,
+                4 * quarter,
+            ],
+            dtype=np.int64,
+        )
+        expected = np.array(
+            [
+                history.mean_force,
+                history.maximum_force,
+                history.mean_force,
+                history.minimum_force,
+                history.mean_force,
+            ],
+            dtype=np.float64,
+        )
+
+        np.testing.assert_allclose(
+            history.forces[indices],
+            expected,
+            rtol=0.0,
+            atol=1.0e-9,
+        )
+
+    def test_multiple_cycles_repeat_and_include_endpoint(self) -> None:
+        n_cycles = 3
+        increments_per_cycle = 40
+        history = create_asymmetric_cyclic_top_force_history(
+            maximum_force=self.maximum_force,
+            force_ratio=self.force_ratio,
+            period=self.period,
+            n_cycles=n_cycles,
+            increments_per_cycle=increments_per_cycle,
+        )
+
+        self.assertEqual(
+            history.n_time_points,
+            n_cycles * increments_per_cycle + 1,
+        )
+        self.assertAlmostEqual(
+            history.times[-1],
+            n_cycles * self.period,
+            places=14,
+        )
+
+        first_cycle = history.forces[
+            : increments_per_cycle + 1
+        ]
+        second_cycle = history.forces[
+            increments_per_cycle:
+            2 * increments_per_cycle + 1
+        ]
+        np.testing.assert_allclose(
+            first_cycle,
+            second_cycle,
+            rtol=32.0 * np.finfo(np.float64).eps,
+            atol=1.0e-9,
+        )
+
+    def test_direct_evaluation_matches_history(self) -> None:
+        history = create_asymmetric_cyclic_top_force_history(
+            maximum_force=self.maximum_force,
+            force_ratio=self.force_ratio,
+            period=self.period,
+            n_cycles=2,
+            increments_per_cycle=40,
+        )
+        evaluated = evaluate_asymmetric_cyclic_top_force(
+            time=history.times,
+            maximum_force=self.maximum_force,
+            force_ratio=self.force_ratio,
+            period=self.period,
+        )
+
+        np.testing.assert_allclose(
+            evaluated,
+            history.forces,
+            rtol=0.0,
+            atol=0.0,
+        )
+
+    def test_default_ratio_is_minus_point_five(self) -> None:
+        history = create_asymmetric_cyclic_top_force_history(
+            maximum_force=self.maximum_force,
+            period=self.period,
+            n_cycles=1,
+            increments_per_cycle=20,
+        )
+
+        self.assertAlmostEqual(
+            history.force_ratio,
+            -0.5,
+            places=14,
+        )
+        self.assertAlmostEqual(
+            history.minimum_force,
+            -0.5 * self.maximum_force,
+            places=8,
+        )
+
+    def test_invalid_asymmetric_parameters_are_rejected(self) -> None:
+        for invalid_ratio in (-1.0, -1.1, 0.0, 0.1):
+            with self.assertRaises(ValueError):
+                create_asymmetric_cyclic_top_force_history(
+                    maximum_force=self.maximum_force,
+                    force_ratio=invalid_ratio,
+                )
+
+        with self.assertRaises(ValueError):
+            create_asymmetric_cyclic_top_force_history(
+                maximum_force=0.0,
+                force_ratio=self.force_ratio,
+            )
+
+        with self.assertRaises(ValueError):
+            create_asymmetric_cyclic_top_force_history(
+                maximum_force=self.maximum_force,
+                force_ratio=self.force_ratio,
+                period=0.0,
+            )
+
+        with self.assertRaises(ValueError):
+            create_asymmetric_cyclic_top_force_history(
+                maximum_force=self.maximum_force,
+                force_ratio=self.force_ratio,
+                n_cycles=0,
+            )
+
+        with self.assertRaises(ValueError):
+            create_asymmetric_cyclic_top_force_history(
+                maximum_force=self.maximum_force,
+                force_ratio=self.force_ratio,
+                increments_per_cycle=10,
+            )
+
+        with self.assertRaises(TypeError):
+            create_asymmetric_cyclic_top_force_history(
+                maximum_force=self.maximum_force,
+                force_ratio=self.force_ratio,
                 n_cycles=1.5,
             )
 
