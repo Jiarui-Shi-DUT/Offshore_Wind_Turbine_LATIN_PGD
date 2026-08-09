@@ -104,6 +104,8 @@ class TowerCyclePhaseSnapshots:
     ----------------
     analysis_times
         (n_cycles, n_phase_points)
+    nodal_displacements
+        (n_cycles, n_phase_points, n_dof)
     fiber_strains
         (n_cycles, n_phase_points, n_elements, n_gauss, n_fibers)
     fiber_stresses
@@ -124,6 +126,7 @@ class TowerCyclePhaseSnapshots:
     phase_fractions: FloatArray
     phase_forces: FloatArray
     analysis_times: FloatArray
+    nodal_displacements: FloatArray
     fiber_strains: FloatArray
     fiber_stresses: FloatArray
     fiber_states: FloatArray
@@ -147,6 +150,10 @@ class TowerCyclePhaseSnapshots:
         )
         analysis_times = np.asarray(
             self.analysis_times,
+            dtype=np.float64,
+        )
+        nodal_displacements = np.asarray(
+            self.nodal_displacements,
             dtype=np.float64,
         )
         fiber_strains = np.asarray(
@@ -212,6 +219,19 @@ class TowerCyclePhaseSnapshots:
                 "(n_cycles, n_phase_points)."
             )
 
+        if nodal_displacements.ndim != 3:
+            raise ValueError(
+                "nodal_displacements must have shape "
+                "(n_cycles, n_phase_points, n_dof)."
+            )
+        if nodal_displacements.shape[:2] != (
+            n_cycles,
+            n_phase_points,
+        ):
+            raise ValueError(
+                "nodal_displacements must match the cycle-phase grid."
+            )
+
         if fiber_strains.ndim != 5:
             raise ValueError(
                 "fiber_strains must have shape "
@@ -239,6 +259,7 @@ class TowerCyclePhaseSnapshots:
             phase_fractions,
             phase_forces,
             analysis_times,
+            nodal_displacements,
             fiber_strains,
             fiber_stresses,
             fiber_states,
@@ -301,6 +322,11 @@ class TowerCyclePhaseSnapshots:
             self,
             "analysis_times",
             analysis_times.copy(),
+        )
+        object.__setattr__(
+            self,
+            "nodal_displacements",
+            nodal_displacements.copy(),
         )
         object.__setattr__(
             self,
@@ -412,6 +438,10 @@ def build_tower_cycle_phase_snapshots(
         phase_forces=phase_forces,
         analysis_times=_tensorize_history(
             values=response.analysis_times,
+            indices=indices,
+        ),
+        nodal_displacements=_tensorize_history(
+            values=response.nodal_displacements,
             indices=indices,
         ),
         fiber_strains=_tensorize_history(

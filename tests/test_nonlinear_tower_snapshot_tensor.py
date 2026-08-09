@@ -60,6 +60,10 @@ class TestNonlinearTowerSnapshotTensor(unittest.TestCase):
             (2, 9),
         )
         self.assertEqual(
+            snapshots.nodal_displacements.shape,
+            (2, 9, 9),
+        )
+        self.assertEqual(
             snapshots.fiber_strains.shape[:2],
             (2, 9),
         )
@@ -109,6 +113,18 @@ class TestNonlinearTowerSnapshotTensor(unittest.TestCase):
             atol=0.0,
         )
         np.testing.assert_allclose(
+            snapshots.nodal_displacements[0],
+            response.nodal_displacements[0:9],
+            rtol=0.0,
+            atol=0.0,
+        )
+        np.testing.assert_allclose(
+            snapshots.nodal_displacements[1],
+            response.nodal_displacements[8:17],
+            rtol=0.0,
+            atol=0.0,
+        )
+        np.testing.assert_allclose(
             snapshots.fiber_strains[0],
             response.fiber_strains[0:9],
             rtol=0.0,
@@ -151,6 +167,12 @@ class TestNonlinearTowerSnapshotTensor(unittest.TestCase):
         self.assertEqual(
             float(snapshots.analysis_times[0, -1]),
             float(snapshots.analysis_times[1, 0]),
+        )
+        np.testing.assert_allclose(
+            snapshots.nodal_displacements[0, -1],
+            snapshots.nodal_displacements[1, 0],
+            rtol=0.0,
+            atol=0.0,
         )
         np.testing.assert_allclose(
             snapshots.fiber_strains[0, -1],

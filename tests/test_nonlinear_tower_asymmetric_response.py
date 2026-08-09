@@ -90,6 +90,28 @@ class TestNonlinearTowerAsymmetricResponse(unittest.TestCase):
             places=14,
         )
 
+    def test_full_nodal_displacement_history_is_stored(self) -> None:
+        response = self.response
+        n_points = self.loading.n_time_points
+        n_dof = 3 * (self.configuration.n_elements + 1)
+
+        self.assertEqual(
+            response.nodal_displacements.shape,
+            (n_points, n_dof),
+        )
+        np.testing.assert_allclose(
+            response.nodal_displacements[:, -3],
+            response.top_displacements,
+            rtol=0.0,
+            atol=0.0,
+        )
+        np.testing.assert_allclose(
+            response.nodal_displacements[:, -1],
+            response.top_rotations,
+            rtol=0.0,
+            atol=0.0,
+        )
+
     def test_force_history_is_sign_reversing_and_asymmetric(self) -> None:
         quarter = self.loading.increments_per_cycle // 4
         forces = self.loading.forces

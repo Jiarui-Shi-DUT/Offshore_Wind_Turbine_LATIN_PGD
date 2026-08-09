@@ -141,6 +141,7 @@ def run_nonlinear_asymmetric_analysis(
     strain_snapshots = []
     stress_snapshots = []
     state_snapshots = []
+    displacement_snapshots = []
 
     def record_solution(index, solution):
         top_displacements[index] = solution.displacements[-3]
@@ -149,6 +150,9 @@ def run_nonlinear_asymmetric_analysis(
         base_moment_reactions[index] = solution.reactions[2]
         iterations[index] = solution.iterations
         residual_norms[index] = solution.residual_norm
+        displacement_snapshots.append(
+            solution.displacements.copy()
+        )
         _snapshot_response(
             response=solution.response,
             strain_snapshots=strain_snapshots,
@@ -175,6 +179,10 @@ def run_nonlinear_asymmetric_analysis(
         )
         record_solution(time_index, solution)
 
+    nodal_displacement_history = np.stack(
+        displacement_snapshots,
+        axis=0,
+    )
     fiber_strain_history = np.stack(
         strain_snapshots,
         axis=0,
@@ -205,6 +213,7 @@ def run_nonlinear_asymmetric_analysis(
         base_moment_reactions=base_moment_reactions,
         iterations=iterations,
         residual_norms=residual_norms,
+        nodal_displacements=nodal_displacement_history,
         fiber_strains=fiber_strain_history,
         fiber_stresses=fiber_stress_history,
         fiber_states=fiber_state_history,

@@ -78,6 +78,7 @@ class NonlinearReversedResponse:
     base_moment_reactions: FloatArray
     iterations: IntArray
     residual_norms: FloatArray
+    nodal_displacements: FloatArray
     fiber_strains: FloatArray
     fiber_stresses: FloatArray
     fiber_states: FloatArray
@@ -133,6 +134,10 @@ class NonlinearReversedResponse:
             self.residual_norms,
             dtype=np.float64,
         )
+        nodal_displacements = np.asarray(
+            self.nodal_displacements,
+            dtype=np.float64,
+        )
 
         global_arrays = (
             analysis_times,
@@ -148,6 +153,35 @@ class NonlinearReversedResponse:
                 raise ValueError(
                     "Every global history must match loading.times."
                 )
+
+        if nodal_displacements.ndim != 2:
+            raise ValueError(
+                "nodal_displacements must have shape "
+                "(n_points, n_dof)."
+            )
+        if nodal_displacements.shape[0] != n_points:
+            raise ValueError(
+                "nodal_displacements must match loading.times."
+            )
+        if nodal_displacements.shape[1] < 3:
+            raise ValueError(
+                "nodal_displacements must contain at least one "
+                "three-DOF beam node."
+            )
+        if not np.allclose(
+            top_displacements,
+            nodal_displacements[:, -3],
+        ):
+            raise ValueError(
+                "top_displacements must match the top-node ux DOF."
+            )
+        if not np.allclose(
+            top_rotations,
+            nodal_displacements[:, -1],
+        ):
+            raise ValueError(
+                "top_rotations must match the top-node rotation DOF."
+            )
 
         fiber_strains = np.asarray(
             self.fiber_strains,
@@ -187,6 +221,7 @@ class NonlinearReversedResponse:
             base_horizontal_reactions,
             base_moment_reactions,
             residual_norms,
+            nodal_displacements,
             fiber_strains,
             fiber_stresses,
             fiber_states,
@@ -284,6 +319,11 @@ class NonlinearReversedResponse:
             self,
             "residual_norms",
             residual_norms.copy(),
+        )
+        object.__setattr__(
+            self,
+            "nodal_displacements",
+            nodal_displacements.copy(),
         )
         object.__setattr__(
             self,
@@ -609,6 +649,7 @@ def run_nonlinear_reversed_analysis(
     strain_snapshots = []
     stress_snapshots = []
     state_snapshots = []
+    displacement_snapshots = []
 
     for time_index in range(n_points):
         load_vector = top_horizontal_load_vector(
@@ -643,6 +684,9 @@ def run_nonlinear_reversed_analysis(
             solution.residual_norm
         )
 
+        displacement_snapshots.append(
+            solution.displacements.copy()
+        )
         (
             fiber_strains,
             fiber_stresses,
@@ -653,6 +697,10 @@ def run_nonlinear_reversed_analysis(
         stress_snapshots.append(fiber_stresses)
         state_snapshots.append(fiber_states)
 
+    nodal_displacement_history = np.stack(
+        displacement_snapshots,
+        axis=0,
+    )
     fiber_strain_history = np.stack(
         strain_snapshots,
         axis=0,
@@ -687,6 +735,7 @@ def run_nonlinear_reversed_analysis(
         base_moment_reactions=base_moment_reactions,
         iterations=iterations,
         residual_norms=residual_norms,
+        nodal_displacements=nodal_displacement_history,
         fiber_strains=fiber_strain_history,
         fiber_stresses=fiber_stress_history,
         fiber_states=fiber_state_history,

@@ -170,6 +170,13 @@ def create_synthetic_multicycle_response(
         )
     ).reshape((-1, 1, 1, 1, 4))
 
+    nodal_displacements = np.zeros(
+        (loading.n_time_points, 3),
+        dtype=np.float64,
+    )
+    nodal_displacements[:, 0] = top_displacements
+    nodal_displacements[:, 2] = top_rotations
+
     return NonlinearReversedResponse(
         loading=loading,
         material=material,
@@ -184,6 +191,7 @@ def create_synthetic_multicycle_response(
         base_moment_reactions=base_moment_reactions,
         iterations=iterations,
         residual_norms=residual_norms,
+        nodal_displacements=nodal_displacements,
         fiber_strains=fiber_strains,
         fiber_stresses=fiber_stresses,
         fiber_states=fiber_states,
@@ -217,6 +225,7 @@ def create_synthetic_asymmetric_multicycle_response(
         base_moment_reactions=-10.0 * loading.forces,
         iterations=reference.iterations,
         residual_norms=reference.residual_norms,
+        nodal_displacements=reference.nodal_displacements,
         fiber_strains=reference.fiber_strains,
         fiber_stresses=reference.fiber_stresses,
         fiber_states=reference.fiber_states,
