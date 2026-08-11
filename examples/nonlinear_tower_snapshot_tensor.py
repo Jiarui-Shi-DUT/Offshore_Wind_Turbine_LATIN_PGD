@@ -19,11 +19,19 @@ including both tau = 0 and tau = T. Therefore, the shared boundary state
 between adjacent cycles is intentionally duplicated. This makes every row a
 complete closed-interval cycle and preserves exact cycle-start/cycle-end
 comparisons needed for ratcheting and damage diagnostics.
+
+The module also provides lossless compressed NPZ persistence for
+``TowerCyclePhaseSnapshots``. The purpose is to solve an expensive FOM only
+once, freeze the resulting cycle-phase snapshots, and reuse exactly the same
+reference data for repeated offline low-rank, stage-wise, CP/PGD, and future
+LATIN-PGD diagnostics.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
+from typing import Union
 
 import numpy as np
 from numpy.typing import NDArray
@@ -35,6 +43,26 @@ from examples.nonlinear_tower_reversed_response import (
 
 FloatArray = NDArray[np.float64]
 IntArray = NDArray[np.int64]
+PathLike = Union[str, Path]
+
+
+# ---------------------------------------------------------------------------
+# Snapshot file-format definition
+# ---------------------------------------------------------------------------
+
+SNAPSHOT_FORMAT_VERSION = 1
+
+_SNAPSHOT_ARRAY_KEYS = (
+    "cycle_numbers",
+    "phase_times",
+    "phase_fractions",
+    "phase_forces",
+    "analysis_times",
+    "nodal_displacements",
+    "fiber_strains",
+    "fiber_stresses",
+    "fiber_states",
+)
 
 
 def _cycle_phase_indices(
@@ -170,9 +198,13 @@ class TowerCyclePhaseSnapshots:
         )
 
         if cycle_numbers.ndim != 1:
-            raise ValueError("cycle_numbers must be one-dimensional.")
+            raise ValueError(
+                "cycle_numbers must be one-dimensional."
+            )
         if cycle_numbers.size < 1:
-            raise ValueError("At least one cycle is required.")
+            raise ValueError(
+                "At least one cycle is required."
+            )
         if not np.array_equal(
             cycle_numbers,
             np.arange(
@@ -186,7 +218,9 @@ class TowerCyclePhaseSnapshots:
             )
 
         if phase_times.ndim != 1:
-            raise ValueError("phase_times must be one-dimensional.")
+            raise ValueError(
+                "phase_times must be one-dimensional."
+            )
         if phase_times.size < 2:
             raise ValueError(
                 "phase_times must contain at least two points."
@@ -195,8 +229,13 @@ class TowerCyclePhaseSnapshots:
             raise ValueError(
                 "phase_times must be strictly increasing."
             )
-        if not np.isclose(float(phase_times[0]), 0.0):
-            raise ValueError("phase_times must begin at zero.")
+        if not np.isclose(
+            float(phase_times[0]),
+            0.0,
+        ):
+            raise ValueError(
+                "phase_times must begin at zero."
+            )
 
         n_cycles = cycle_numbers.size
         n_phase_points = phase_times.size
@@ -229,7 +268,8 @@ class TowerCyclePhaseSnapshots:
             n_phase_points,
         ):
             raise ValueError(
-                "nodal_displacements must match the cycle-phase grid."
+                "nodal_displacements must match "
+                "the cycle-phase grid."
             )
 
         if fiber_strains.ndim != 5:
@@ -243,7 +283,8 @@ class TowerCyclePhaseSnapshots:
             n_phase_points,
         ):
             raise ValueError(
-                "fiber_strains must match the cycle-phase grid."
+                "fiber_strains must match "
+                "the cycle-phase grid."
             )
         if fiber_stresses.shape != fiber_strains.shape:
             raise ValueError(
@@ -251,7 +292,8 @@ class TowerCyclePhaseSnapshots:
             )
         if fiber_states.shape != fiber_strains.shape + (4,):
             raise ValueError(
-                "fiber_states must append four material variables."
+                "fiber_states must append "
+                "four material variables."
             )
 
         finite_arrays = (
@@ -264,6 +306,7 @@ class TowerCyclePhaseSnapshots:
             fiber_stresses,
             fiber_states,
         )
+
         for array in finite_arrays:
             if np.any(~np.isfinite(array)):
                 raise ValueError(
@@ -277,6 +320,7 @@ class TowerCyclePhaseSnapshots:
             raise ValueError(
                 "phase_fractions must begin at zero."
             )
+
         if not np.isclose(
             float(phase_fractions[-1]),
             1.0,
@@ -284,16 +328,24 @@ class TowerCyclePhaseSnapshots:
             raise ValueError(
                 "phase_fractions must end at one."
             )
-        if np.any(np.diff(phase_fractions) <= 0.0):
+
+        if np.any(
+            np.diff(phase_fractions) <= 0.0
+        ):
             raise ValueError(
                 "phase_fractions must be strictly increasing."
             )
 
-        if np.any(fiber_states[..., 3] < 0.0):
+        if np.any(
+            fiber_states[..., 3] < 0.0
+        ):
             raise ValueError(
                 "Fiber damage must be non-negative."
             )
-        if np.any(fiber_states[..., 3] >= 1.0):
+
+        if np.any(
+            fiber_states[..., 3] >= 1.0
+        ):
             raise ValueError(
                 "Fiber damage must be smaller than one."
             )
@@ -393,7 +445,10 @@ def build_tower_cycle_phase_snapshots(
     intentionally duplicate their common boundary state.
     """
     loading = response.loading
-    n_cycles = int(loading.n_cycles)
+
+    n_cycles = int(
+        loading.n_cycles
+    )
     increments_per_cycle = int(
         loading.increments_per_cycle
     )
@@ -401,14 +456,22 @@ def build_tower_cycle_phase_snapshots(
     expected_points = (
         n_cycles * increments_per_cycle + 1
     )
-    if response.fiber_strains.shape[0] != expected_points:
+
+    if (
+        response.fiber_strains.shape[0]
+        != expected_points
+    ):
         raise ValueError(
             "The response does not contain the expected number "
             "of complete periodic points."
         )
-    if response.analysis_times.shape != (expected_points,):
+
+    if response.analysis_times.shape != (
+        expected_points,
+    ):
         raise ValueError(
-            "analysis_times does not match the periodic history."
+            "analysis_times does not match "
+            "the periodic history."
         )
 
     indices = _cycle_phase_indices(
@@ -417,13 +480,26 @@ def build_tower_cycle_phase_snapshots(
     )
 
     phase_times = np.asarray(
-        loading.times[: increments_per_cycle + 1],
+        loading.times[
+            : increments_per_cycle + 1
+        ],
         dtype=np.float64,
     )
-    phase_times = phase_times - float(phase_times[0])
-    phase_fractions = phase_times / float(loading.period)
+
+    phase_times = (
+        phase_times
+        - float(phase_times[0])
+    )
+
+    phase_fractions = (
+        phase_times
+        / float(loading.period)
+    )
+
     phase_forces = np.asarray(
-        loading.forces[: increments_per_cycle + 1],
+        loading.forces[
+            : increments_per_cycle + 1
+        ],
         dtype=np.float64,
     )
 
@@ -456,4 +532,226 @@ def build_tower_cycle_phase_snapshots(
             values=response.fiber_states,
             indices=indices,
         ),
+    )
+
+
+def save_tower_cycle_phase_snapshots(
+    snapshots: TowerCyclePhaseSnapshots,
+    file_path: PathLike,
+) -> Path:
+    """
+    Save one complete tower cycle-phase snapshot dataset as compressed NPZ.
+
+    Only primitive snapshot arrays are stored.
+
+    Derived quantities such as plastic-strain channels, damage channels,
+    cycle-increment fields, singular values, and low-rank diagnostics are
+    intentionally not duplicated in the file.
+
+    The dataset is first written to a temporary file and then moved into its
+    final path. This reduces the chance that an interrupted write leaves a
+    partially written file that appears to be a valid frozen FOM dataset.
+
+    Parameters
+    ----------
+    snapshots
+        Fully validated ``TowerCyclePhaseSnapshots`` object.
+    file_path
+        Destination path. The filename must use the ``.npz`` suffix.
+
+    Returns
+    -------
+    pathlib.Path
+        Final path of the saved snapshot dataset.
+    """
+    if not isinstance(
+        snapshots,
+        TowerCyclePhaseSnapshots,
+    ):
+        raise TypeError(
+            "snapshots must be a "
+            "TowerCyclePhaseSnapshots object."
+        )
+
+    path = Path(file_path)
+
+    if path.suffix.lower() != ".npz":
+        raise ValueError(
+            "file_path must have the .npz suffix."
+        )
+
+    if not path.parent.exists():
+        raise FileNotFoundError(
+            "The parent directory of file_path "
+            "does not exist."
+        )
+
+    if not path.parent.is_dir():
+        raise NotADirectoryError(
+            "The parent of file_path must be "
+            "an existing directory."
+        )
+
+    temporary_path = path.with_name(
+        path.name + ".tmp"
+    )
+
+    try:
+        with temporary_path.open("wb") as file_object:
+            np.savez_compressed(
+                file_object,
+                snapshot_format_version=np.asarray(
+                    SNAPSHOT_FORMAT_VERSION,
+                    dtype=np.int64,
+                ),
+                cycle_numbers=snapshots.cycle_numbers,
+                phase_times=snapshots.phase_times,
+                phase_fractions=snapshots.phase_fractions,
+                phase_forces=snapshots.phase_forces,
+                analysis_times=snapshots.analysis_times,
+                nodal_displacements=(
+                    snapshots.nodal_displacements
+                ),
+                fiber_strains=snapshots.fiber_strains,
+                fiber_stresses=snapshots.fiber_stresses,
+                fiber_states=snapshots.fiber_states,
+            )
+
+        temporary_path.replace(path)
+
+    except Exception:
+        if temporary_path.exists():
+            temporary_path.unlink()
+        raise
+
+    return path
+
+
+def load_tower_cycle_phase_snapshots(
+    file_path: PathLike,
+) -> TowerCyclePhaseSnapshots:
+    """
+    Load one tower cycle-phase snapshot dataset from compressed NPZ.
+
+    Pickle loading is explicitly disabled.
+
+    The arrays read from disk are passed back through
+    ``TowerCyclePhaseSnapshots`` so the same cycle-grid, dimensional,
+    finite-value, and damage-range validation used by newly generated FOM
+    snapshots is also applied to datasets loaded from disk.
+
+    Parameters
+    ----------
+    file_path
+        Existing ``.npz`` snapshot dataset.
+
+    Returns
+    -------
+    TowerCyclePhaseSnapshots
+        Reconstructed and validated cycle-phase snapshot object.
+    """
+    path = Path(file_path)
+
+    if path.suffix.lower() != ".npz":
+        raise ValueError(
+            "file_path must have the .npz suffix."
+        )
+
+    if not path.is_file():
+        raise FileNotFoundError(
+            "The requested snapshot file does not exist."
+        )
+
+    with np.load(
+        path,
+        allow_pickle=False,
+    ) as archive:
+        required_keys = {
+            "snapshot_format_version",
+            *_SNAPSHOT_ARRAY_KEYS,
+        }
+
+        available_keys = set(
+            archive.files
+        )
+
+        missing_keys = (
+            required_keys
+            - available_keys
+        )
+
+        if missing_keys:
+            missing_text = ", ".join(
+                sorted(missing_keys)
+            )
+            raise ValueError(
+                "Snapshot file is missing "
+                "required arrays: "
+                + missing_text
+            )
+
+        version_array = np.asarray(
+            archive[
+                "snapshot_format_version"
+            ],
+            dtype=np.int64,
+        )
+
+        if version_array.size != 1:
+            raise ValueError(
+                "snapshot_format_version must "
+                "contain exactly one value."
+            )
+
+        version = int(
+            version_array.reshape(-1)[0]
+        )
+
+        if (
+            version
+            != SNAPSHOT_FORMAT_VERSION
+        ):
+            raise ValueError(
+                "Unsupported snapshot format version: "
+                + str(version)
+                + ". Expected version "
+                + str(SNAPSHOT_FORMAT_VERSION)
+                + "."
+            )
+
+        arrays = {
+            key: np.asarray(
+                archive[key]
+            ).copy()
+            for key in _SNAPSHOT_ARRAY_KEYS
+        }
+
+    return TowerCyclePhaseSnapshots(
+        cycle_numbers=arrays[
+            "cycle_numbers"
+        ],
+        phase_times=arrays[
+            "phase_times"
+        ],
+        phase_fractions=arrays[
+            "phase_fractions"
+        ],
+        phase_forces=arrays[
+            "phase_forces"
+        ],
+        analysis_times=arrays[
+            "analysis_times"
+        ],
+        nodal_displacements=arrays[
+            "nodal_displacements"
+        ],
+        fiber_strains=arrays[
+            "fiber_strains"
+        ],
+        fiber_stresses=arrays[
+            "fiber_stresses"
+        ],
+        fiber_states=arrays[
+            "fiber_states"
+        ],
     )

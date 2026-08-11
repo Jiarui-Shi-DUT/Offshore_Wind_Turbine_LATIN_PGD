@@ -3,7 +3,9 @@
 
 from __future__ import annotations
 
+import tempfile
 import unittest
+from pathlib import Path
 
 import numpy as np
 
@@ -12,7 +14,10 @@ from examples.nonlinear_tower_asymmetric_response import (
     run_nonlinear_asymmetric_analysis,
 )
 from examples.nonlinear_tower_snapshot_tensor import (
+    TowerCyclePhaseSnapshots,
     build_tower_cycle_phase_snapshots,
+    load_tower_cycle_phase_snapshots,
+    save_tower_cycle_phase_snapshots,
 )
 from fem.tower_loading import (
     create_asymmetric_cyclic_top_force_history,
@@ -21,7 +26,7 @@ from material.viscoplastic_damage_1d import MaterialParameters
 
 
 class TestNonlinearTowerSnapshotTensor(unittest.TestCase):
-    """Verify exact reorganization of FOM histories into (n, tau) form."""
+    """Verify exact reorganization and persistence of tower snapshots."""
 
     @classmethod
     def setUpClass(cls) -> None:
@@ -257,6 +262,113 @@ class TestNonlinearTowerSnapshotTensor(unittest.TestCase):
             rtol=0.0,
             atol=0.0,
         )
+
+    def test_npz_round_trip_preserves_all_snapshot_arrays_exactly(self) -> None:
+        """Saving and loading must reproduce the snapshot object exactly."""
+        snapshots = self.snapshots
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            file_path = (
+                Path(temporary_directory)
+                / "tower_cycle_phase_snapshots.npz"
+            )
+
+            saved_path = save_tower_cycle_phase_snapshots(
+                snapshots=snapshots,
+                file_path=file_path,
+            )
+            loaded = load_tower_cycle_phase_snapshots(
+                file_path=saved_path,
+            )
+
+            self.assertEqual(saved_path, file_path)
+            self.assertTrue(saved_path.is_file())
+            self.assertIsInstance(
+                loaded,
+                TowerCyclePhaseSnapshots,
+            )
+
+            np.testing.assert_array_equal(
+                loaded.cycle_numbers,
+                snapshots.cycle_numbers,
+            )
+            np.testing.assert_array_equal(
+                loaded.phase_times,
+                snapshots.phase_times,
+            )
+            np.testing.assert_array_equal(
+                loaded.phase_fractions,
+                snapshots.phase_fractions,
+            )
+            np.testing.assert_array_equal(
+                loaded.phase_forces,
+                snapshots.phase_forces,
+            )
+            np.testing.assert_array_equal(
+                loaded.analysis_times,
+                snapshots.analysis_times,
+            )
+            np.testing.assert_array_equal(
+                loaded.nodal_displacements,
+                snapshots.nodal_displacements,
+            )
+            np.testing.assert_array_equal(
+                loaded.fiber_strains,
+                snapshots.fiber_strains,
+            )
+            np.testing.assert_array_equal(
+                loaded.fiber_stresses,
+                snapshots.fiber_stresses,
+            )
+            np.testing.assert_array_equal(
+                loaded.fiber_states,
+                snapshots.fiber_states,
+            )
+
+    def test_npz_contains_only_version_and_primitive_snapshot_arrays(self) -> None:
+        """The frozen FOM file must not duplicate derived diagnostics."""
+        snapshots = self.snapshots
+
+        expected_keys = {
+            "snapshot_format_version",
+            "cycle_numbers",
+            "phase_times",
+            "phase_fractions",
+            "phase_forces",
+            "analysis_times",
+            "nodal_displacements",
+            "fiber_strains",
+            "fiber_stresses",
+            "fiber_states",
+        }
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            file_path = (
+                Path(temporary_directory)
+                / "tower_cycle_phase_snapshots.npz"
+            )
+
+            save_tower_cycle_phase_snapshots(
+                snapshots=snapshots,
+                file_path=file_path,
+            )
+
+            with np.load(
+                file_path,
+                allow_pickle=False,
+            ) as archive:
+                self.assertEqual(
+                    set(archive.files),
+                    expected_keys,
+                )
+                self.assertEqual(
+                    int(
+                        np.asarray(
+                            archive["snapshot_format_version"]
+                        ).reshape(-1)[0]
+                    ),
+                    1,
+                )
 
 
 if __name__ == "__main__":

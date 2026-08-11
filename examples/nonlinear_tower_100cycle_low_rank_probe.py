@@ -4,12 +4,13 @@
 
 This script runs the current reduced full-order tower model under the formal
 asymmetric cyclic loading used in the 100-cycle transition study, tensorizes
-the response into slow-cycle x fast-phase coordinates, and prints mode-wise
-SVD diagnostics for
+the response into slow-cycle x fast-phase coordinates, freezes the complete
+cycle-phase snapshots as a compressed NPZ reference dataset, and prints
+mode-wise SVD diagnostics for
 
     u, sigma, eps_p, D.
 
-The analysis is diagnostic only.  It does not construct or solve a LATIN-PGD
+The analysis is diagnostic only. It does not construct or solve a LATIN-PGD
 reduced model.
 
 Run from the repository root:
@@ -33,11 +34,22 @@ Loading:
 
 The preload used by ``run_nonlinear_asymmetric_analysis`` is retained exactly
 as in the previous asymmetric-cycle studies and is not counted as a cycle.
+
+Frozen reference dataset
+------------------------
+The complete ``TowerCyclePhaseSnapshots`` object is saved to
+
+    outputs/tower_100cycle_fom_reference_v1.npz
+
+The ``outputs`` directory is already excluded by the repository ``.gitignore``.
+The binary FOM reference is therefore kept locally and is not intended to be
+committed to Git.
 """
 
 from __future__ import annotations
 
 import time
+from pathlib import Path
 from typing import Iterable, Tuple
 
 import numpy as np
@@ -53,6 +65,7 @@ from examples.nonlinear_tower_low_rank_diagnostics import (
 )
 from examples.nonlinear_tower_snapshot_tensor import (
     build_tower_cycle_phase_snapshots,
+    save_tower_cycle_phase_snapshots,
 )
 from fem.tower_loading import (
     create_asymmetric_cyclic_top_force_history,
@@ -62,6 +75,14 @@ from material.viscoplastic_damage_1d import MaterialParameters
 
 ENERGY_TARGETS = (0.99, 0.999, 0.9999)
 SINGULAR_RATIO_INDICES = (1, 2, 4, 9)
+
+FROZEN_SNAPSHOT_FILENAME = "tower_100cycle_fom_reference_v1.npz"
+
+
+def _default_snapshot_path() -> Path:
+    """Return the local path for the frozen 100-cycle FOM reference dataset."""
+    repository_root = Path(__file__).resolve().parents[1]
+    return repository_root / "outputs" / FROZEN_SNAPSHOT_FILENAME
 
 
 def _ratio_at(
@@ -149,7 +170,7 @@ def _print_global_summary(
     elapsed_fom: float,
     elapsed_tensorization: float,
 ) -> None:
-    """Print FOM anchors before the SVD stage."""
+    """Print FOM anchors before the persistence and SVD stages."""
     loading = response.loading
     maximum_damage = float(response.maximum_damages[-1])
     maximum_plastic = float(
@@ -237,8 +258,27 @@ def _print_global_summary(
     )
 
 
+def _print_snapshot_summary(
+    snapshot_path: Path,
+    elapsed_save: float,
+) -> None:
+    """Print the location, size, and write time of the frozen dataset."""
+    size_mib = snapshot_path.stat().st_size / (1024.0 ** 2)
+
+    print("\n" + "=" * 118)
+    print("Frozen 100-cycle FOM snapshot dataset")
+    print("=" * 118)
+    print("Path: {}".format(snapshot_path))
+    print("File size: {:.3f} MiB".format(size_mib))
+    print("Elapsed snapshot save: {:.3f} s".format(elapsed_save))
+    print(
+        "This NPZ is the frozen full-order reference for subsequent "
+        "offline Stage I/II/III and reduced-order diagnostics."
+    )
+
+
 def main() -> None:
-    """Run the formal 100-cycle FOM and print low-rank diagnostics."""
+    """Run, freeze, and diagnose the formal 100-cycle tower FOM."""
     configuration = TowerConfiguration(
         horizontal_force=1.0e6,
         n_elements=10,
@@ -274,6 +314,24 @@ def main() -> None:
         elapsed_tensorization=(
             after_tensorization - after_fom
         ),
+    )
+
+    snapshot_path = _default_snapshot_path()
+    snapshot_path.parent.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    save_start = time.perf_counter()
+    saved_snapshot_path = save_tower_cycle_phase_snapshots(
+        snapshots=snapshots,
+        file_path=snapshot_path,
+    )
+    after_snapshot_save = time.perf_counter()
+
+    _print_snapshot_summary(
+        snapshot_path=saved_snapshot_path,
+        elapsed_save=after_snapshot_save - save_start,
     )
 
     diagnostics = analyze_tower_low_rank(snapshots)
@@ -319,7 +377,7 @@ def main() -> None:
     print("\n" + "=" * 118)
     print(
         "Elapsed SVD diagnostics={:.3f} s; total={:.3f} s".format(
-            after_svd - after_tensorization,
+            after_svd - after_snapshot_save,
             after_svd - start,
         )
     )
