@@ -18,6 +18,7 @@ from examples.nonlinear_tower_snapshot_tensor import (
     build_tower_cycle_phase_snapshots,
     load_tower_cycle_phase_snapshots,
     save_tower_cycle_phase_snapshots,
+    select_tower_cycle_range,
 )
 from fem.tower_loading import (
     create_asymmetric_cyclic_top_force_history,
@@ -262,6 +263,209 @@ class TestNonlinearTowerSnapshotTensor(unittest.TestCase):
             rtol=0.0,
             atol=0.0,
         )
+
+
+    def test_global_cycle_numbers_may_start_above_one(self) -> None:
+        """Stage snapshots must retain their original global cycle numbers."""
+        snapshots = self.snapshots
+
+        shifted = TowerCyclePhaseSnapshots(
+            cycle_numbers=np.array(
+                [21, 22],
+                dtype=np.int64,
+            ),
+            phase_times=snapshots.phase_times,
+            phase_fractions=snapshots.phase_fractions,
+            phase_forces=snapshots.phase_forces,
+            analysis_times=snapshots.analysis_times,
+            nodal_displacements=snapshots.nodal_displacements,
+            fiber_strains=snapshots.fiber_strains,
+            fiber_stresses=snapshots.fiber_stresses,
+            fiber_states=snapshots.fiber_states,
+        )
+
+        np.testing.assert_array_equal(
+            shifted.cycle_numbers,
+            np.array(
+                [21, 22],
+                dtype=np.int64,
+            ),
+        )
+        self.assertEqual(
+            shifted.n_cycles,
+            2,
+        )
+
+    def test_global_cycle_numbers_must_be_positive_and_consecutive(self) -> None:
+        """Non-positive, gapped, or reversed global numbering is invalid."""
+        snapshots = self.snapshots
+
+        invalid_cycle_numbers = (
+            np.array([0, 1], dtype=np.int64),
+            np.array([21, 23], dtype=np.int64),
+            np.array([22, 21], dtype=np.int64),
+        )
+
+        for cycle_numbers in invalid_cycle_numbers:
+            with self.subTest(
+                cycle_numbers=cycle_numbers.tolist()
+            ):
+                with self.assertRaises(ValueError):
+                    TowerCyclePhaseSnapshots(
+                        cycle_numbers=cycle_numbers,
+                        phase_times=snapshots.phase_times,
+                        phase_fractions=snapshots.phase_fractions,
+                        phase_forces=snapshots.phase_forces,
+                        analysis_times=snapshots.analysis_times,
+                        nodal_displacements=(
+                            snapshots.nodal_displacements
+                        ),
+                        fiber_strains=snapshots.fiber_strains,
+                        fiber_stresses=snapshots.fiber_stresses,
+                        fiber_states=snapshots.fiber_states,
+                    )
+
+    def test_select_cycle_range_preserves_global_numbering_and_data(self) -> None:
+        """Stage selection must not renumber cycles locally."""
+        snapshots = self.snapshots
+
+        shifted = TowerCyclePhaseSnapshots(
+            cycle_numbers=np.array(
+                [21, 22],
+                dtype=np.int64,
+            ),
+            phase_times=snapshots.phase_times,
+            phase_fractions=snapshots.phase_fractions,
+            phase_forces=snapshots.phase_forces,
+            analysis_times=snapshots.analysis_times,
+            nodal_displacements=snapshots.nodal_displacements,
+            fiber_strains=snapshots.fiber_strains,
+            fiber_stresses=snapshots.fiber_stresses,
+            fiber_states=snapshots.fiber_states,
+        )
+
+        selected = select_tower_cycle_range(
+            snapshots=shifted,
+            first_cycle=22,
+            last_cycle=22,
+        )
+
+        np.testing.assert_array_equal(
+            selected.cycle_numbers,
+            np.array(
+                [22],
+                dtype=np.int64,
+            ),
+        )
+        self.assertEqual(
+            selected.n_cycles,
+            1,
+        )
+        np.testing.assert_array_equal(
+            selected.phase_times,
+            shifted.phase_times,
+        )
+        np.testing.assert_array_equal(
+            selected.phase_fractions,
+            shifted.phase_fractions,
+        )
+        np.testing.assert_array_equal(
+            selected.phase_forces,
+            shifted.phase_forces,
+        )
+        np.testing.assert_array_equal(
+            selected.analysis_times,
+            shifted.analysis_times[1:2],
+        )
+        np.testing.assert_array_equal(
+            selected.nodal_displacements,
+            shifted.nodal_displacements[1:2],
+        )
+        np.testing.assert_array_equal(
+            selected.fiber_strains,
+            shifted.fiber_strains[1:2],
+        )
+        np.testing.assert_array_equal(
+            selected.fiber_stresses,
+            shifted.fiber_stresses[1:2],
+        )
+        np.testing.assert_array_equal(
+            selected.fiber_states,
+            shifted.fiber_states[1:2],
+        )
+
+    def test_select_cycle_range_rejects_invalid_bounds(self) -> None:
+        snapshots = self.snapshots
+
+        invalid_ranges = (
+            (0, 1),
+            (2, 1),
+            (1, 3),
+        )
+
+        for first_cycle, last_cycle in invalid_ranges:
+            with self.subTest(
+                first_cycle=first_cycle,
+                last_cycle=last_cycle,
+            ):
+                with self.assertRaises(ValueError):
+                    select_tower_cycle_range(
+                        snapshots=snapshots,
+                        first_cycle=first_cycle,
+                        last_cycle=last_cycle,
+                    )
+
+        with self.assertRaises(TypeError):
+            select_tower_cycle_range(
+                snapshots=snapshots,
+                first_cycle=True,
+                last_cycle=2,
+            )
+
+    def test_npz_round_trip_preserves_global_cycle_numbers(self) -> None:
+        """Persistence must retain non-one-based global cycle numbering."""
+        snapshots = self.snapshots
+
+        shifted = TowerCyclePhaseSnapshots(
+            cycle_numbers=np.array(
+                [47, 48],
+                dtype=np.int64,
+            ),
+            phase_times=snapshots.phase_times,
+            phase_fractions=snapshots.phase_fractions,
+            phase_forces=snapshots.phase_forces,
+            analysis_times=snapshots.analysis_times,
+            nodal_displacements=snapshots.nodal_displacements,
+            fiber_strains=snapshots.fiber_strains,
+            fiber_stresses=snapshots.fiber_stresses,
+            fiber_states=snapshots.fiber_states,
+        )
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            file_path = (
+                Path(temporary_directory)
+                / "global_cycle_snapshots.npz"
+            )
+
+            save_tower_cycle_phase_snapshots(
+                snapshots=shifted,
+                file_path=file_path,
+            )
+            loaded = load_tower_cycle_phase_snapshots(
+                file_path=file_path,
+            )
+
+            np.testing.assert_array_equal(
+                loaded.cycle_numbers,
+                np.array(
+                    [47, 48],
+                    dtype=np.int64,
+                ),
+            )
+            np.testing.assert_array_equal(
+                loaded.fiber_states,
+                shifted.fiber_states,
+            )
 
     def test_npz_round_trip_preserves_all_snapshot_arrays_exactly(self) -> None:
         """Saving and loading must reproduce the snapshot object exactly."""

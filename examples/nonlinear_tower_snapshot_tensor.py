@@ -205,16 +205,16 @@ class TowerCyclePhaseSnapshots:
             raise ValueError(
                 "At least one cycle is required."
             )
-        if not np.array_equal(
-            cycle_numbers,
-            np.arange(
-                1,
-                cycle_numbers.size + 1,
-                dtype=np.int64,
-            ),
+        if np.any(cycle_numbers < 1):
+            raise ValueError(
+                "cycle_numbers must contain positive global cycle numbers."
+            )
+        if (
+            cycle_numbers.size > 1
+            and np.any(np.diff(cycle_numbers) != 1)
         ):
             raise ValueError(
-                "cycle_numbers must be consecutive and one-based."
+                "cycle_numbers must be consecutive and strictly increasing."
             )
 
         if phase_times.ndim != 1:
@@ -534,6 +534,130 @@ def build_tower_cycle_phase_snapshots(
         ),
     )
 
+
+
+def select_tower_cycle_range(
+    snapshots: TowerCyclePhaseSnapshots,
+    first_cycle: int,
+    last_cycle: int,
+) -> TowerCyclePhaseSnapshots:
+    """
+    Select an inclusive range of global cycle numbers.
+
+    The returned object preserves the original global cycle numbering rather
+    than renumbering the selected stage locally. For example, selecting cycles
+    21 through 46 returns ``cycle_numbers == [21, ..., 46]``.
+
+    Fast-phase coordinates and phase forces are common to every cycle and are
+    therefore retained unchanged. Cycle-indexed arrays are sliced along their
+    first axis. ``analysis_times`` remain the original absolute analysis times.
+
+    Parameters
+    ----------
+    snapshots
+        Source cycle-phase snapshot dataset.
+    first_cycle
+        First global cycle number to retain, inclusive.
+    last_cycle
+        Last global cycle number to retain, inclusive.
+
+    Returns
+    -------
+    TowerCyclePhaseSnapshots
+        A validated snapshot object containing only the requested cycle range.
+    """
+    if not isinstance(
+        snapshots,
+        TowerCyclePhaseSnapshots,
+    ):
+        raise TypeError(
+            "snapshots must be a TowerCyclePhaseSnapshots object."
+        )
+
+    for value, name in (
+        (first_cycle, "first_cycle"),
+        (last_cycle, "last_cycle"),
+    ):
+        if isinstance(value, (bool, np.bool_)):
+            raise TypeError(
+                name + " must be an integer global cycle number."
+            )
+        if not isinstance(value, (int, np.integer)):
+            raise TypeError(
+                name + " must be an integer global cycle number."
+            )
+
+    first_cycle = int(first_cycle)
+    last_cycle = int(last_cycle)
+
+    if first_cycle < 1 or last_cycle < 1:
+        raise ValueError(
+            "Requested cycle numbers must be positive."
+        )
+    if first_cycle > last_cycle:
+        raise ValueError(
+            "first_cycle must not exceed last_cycle."
+        )
+
+    available_first = int(
+        snapshots.cycle_numbers[0]
+    )
+    available_last = int(
+        snapshots.cycle_numbers[-1]
+    )
+
+    if (
+        first_cycle < available_first
+        or last_cycle > available_last
+    ):
+        raise ValueError(
+            "Requested cycle range [{}, {}] is outside the available "
+            "global cycle range [{}, {}].".format(
+                first_cycle,
+                last_cycle,
+                available_first,
+                available_last,
+            )
+        )
+
+    start_index = (
+        first_cycle
+        - available_first
+    )
+    stop_index = (
+        last_cycle
+        - available_first
+        + 1
+    )
+
+    cycle_slice = slice(
+        start_index,
+        stop_index,
+    )
+
+    return TowerCyclePhaseSnapshots(
+        cycle_numbers=snapshots.cycle_numbers[
+            cycle_slice
+        ],
+        phase_times=snapshots.phase_times,
+        phase_fractions=snapshots.phase_fractions,
+        phase_forces=snapshots.phase_forces,
+        analysis_times=snapshots.analysis_times[
+            cycle_slice
+        ],
+        nodal_displacements=snapshots.nodal_displacements[
+            cycle_slice
+        ],
+        fiber_strains=snapshots.fiber_strains[
+            cycle_slice
+        ],
+        fiber_stresses=snapshots.fiber_stresses[
+            cycle_slice
+        ],
+        fiber_states=snapshots.fiber_states[
+            cycle_slice
+        ],
+    )
 
 def save_tower_cycle_phase_snapshots(
     snapshots: TowerCyclePhaseSnapshots,
