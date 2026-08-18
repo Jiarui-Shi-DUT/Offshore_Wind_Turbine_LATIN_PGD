@@ -8,6 +8,7 @@
 - 上一阶段文档：`docs/2026-08-18-tower-latin-state-field-by-field-contract-stage-summary.md`
 - 当前阶段范围：在 14-entry state contract 已冻结后，闭合四层 state ownership、Trial A / Trial B transaction、mode rollback、LATIN iteration atomic commit、module I/O boundary、dependency direction 与 first-code-entry order
 - 当前结论：代码前的理论、数据、transaction 与 module interface 已完成最终冻结
+- 本次修订：区分 persistent `B_m`、Trial A fixed-basis temporal-update result `B_m^A`、Trial B enriched candidate `B_(m+1)^(B*)`；明确 mode rollback target 与 whole-iteration rollback target 不同
 - 下一阶段：正式创建 `latin/tower_state.py` 与第一组 state/layout 单元测试
 - PyCharm Preview 兼容性：所有 display-math 统一采用单物理行 `$$ ... $$`；数学环境不使用 raw `<`，小于关系统一使用 `\lt`
 
@@ -376,9 +377,31 @@ $$ f_i $$
 
 $$ \mathcal B_m $$
 
-执行 fixed-basis temporal update。
+作为 read-only input，执行 fixed-basis temporal update。
 
-得到：
+该步骤保持 spatial rank 与 spatial modes 不变，但更新 existing modes 的 temporal coordinates，因此返回新的 provisional fixed-basis representation：
+
+$$ \mathcal B_m \longrightarrow \mathcal B_m^{A}. $$
+
+其中 spatial quantities 满足：
+
+$$ P_m^{A}=P_m,\qquad S_m^{A}=S_m, $$
+
+而一般：
+
+$$ \Lambda_m^{A}\neq\Lambda_m,\qquad \dot\Lambda_m^{A}\neq\dot\Lambda_m. $$
+
+因此 Trial A 的 plastic correction 必须由：
+
+$$ \mathcal B_m^{A} $$
+
+重构，而不是继续由 old persistent：
+
+$$ \mathcal B_m $$
+
+重构。
+
+由 $\mathcal B_m^{A}$ 得到：
 
 $$ \Delta\varepsilon_A^p, $$
 
@@ -395,6 +418,12 @@ $$ \breve s_{i+1}^{A}. $$
 再 relaxation：
 
 $$ s_{i+1}^{A}=(1-\mu)s_i+\mu\breve s_{i+1}^{A}. $$
+
+因此 Trial A 实际上是一个 coupled provisional pair：
+
+$$ \mathcal T_A^{\rm trial}=(s_A,\mathcal B_m^{A},\xi_A). $$
+
+这里 $\mathcal B_m^{A}$ 仍未 persistent commit。
 
 ---
 
@@ -459,11 +488,19 @@ $$ \text{same baseline Trial A / Trial B}. $$
 
 # 16. Mode transaction 的 baseline
 
-mode transaction使用：
+必须区分两层 baseline。
 
-$$ \mathcal B_m^{\rm before} $$
+LATIN iteration persistent rollback target 仍是：
 
-作为 immutable snapshot。
+$$ \mathcal B_m. $$
+
+但是在 fixed-basis temporal update完成后，current reduced defect $R_A$ 对应的是 provisional fixed-basis solution：
+
+$$ \mathcal B_m^{A}. $$
+
+因此若 enrichment 被真正要求，one-mode transaction 的直接 input / snapshot 应为：
+
+$$ \mathcal B_m^{A}. $$
 
 工作对象：
 
@@ -471,11 +508,24 @@ $$ \mathcal B_{\rm work}. $$
 
 所有：
 
+- raw rank-one generation；
 - Gram–Schmidt；
 - temporal coordinate transformation；
 - all-mode temporal re-optimisation；
 
-均作用于 working candidate。
+均作用于 $\mathcal B_m^{A}$ 的 working copy。
+
+因此本阶段冻结两个不同 rollback targets：
+
+```text
+mode-transaction rollback target
+    = B_m^A
+
+LATIN-iteration rollback target
+    = persistent B_m
+```
+
+前者用于撤销 failed/rejected new-mode construction；后者用于撤销整个 failed LATIN iteration。
 
 ---
 
@@ -490,13 +540,19 @@ $$ \mathcal B_{\rm work}. $$
 - all-mode temporal solve；
 - full residual benefit；
 
-得到：
+则由：
 
-$$ \mathcal B_{m+1}^{*}. $$
+$$ \mathcal B_m^{A} $$
+
+得到 enlarged candidate：
+
+$$ \mathcal B_{m+1}^{B*}. $$
 
 星号表示：
 
 > mode transaction内部 accepted，但还没有 persistent commit。
+
+其中 existing modes 与 new mode 已经完成 enlarged-basis all-mode temporal re-optimisation。
 
 ---
 
@@ -518,7 +574,7 @@ $$ \text{mode accepted}\not\Rightarrow\text{iteration already committed}. $$
 
 # 19. Trial B 从 same baseline重建
 
-使用：
+Trial B 的 **state baseline** 与 Trial A 完全相同，仍使用：
 
 $$ s_i, $$
 
@@ -526,11 +582,11 @@ $$ \hat s_{i+1/2}, $$
 
 $$ \mathcal H_i, $$
 
-$$ \mathcal F_i, $$
+$$ \mathcal F_i. $$
 
-以及：
+但它使用 enriched candidate basis：
 
-$$ \mathcal B_{m+1}^{*}. $$
+$$ \mathcal B_{m+1}^{B*}. $$
 
 重新生成：
 
@@ -540,17 +596,41 @@ $$ \breve s_{i+1}^{B}. $$
 
 $$ \breve s_B=s_A+\text{new mode correction}. $$
 
+也禁止把 $s_A$ 当作 Trial B 的新的 nonlinear state baseline。
+
+因此：
+
+> Trial A/B share the same LATIN state baseline $s_i$，但 reduced-basis working path 是 $\mathcal B_m\rightarrow\mathcal B_m^A\rightarrow\mathcal B_{m+1}^{B*}$。
+
 ---
 
 # 20. Trial A/B common-baseline graph
 
+正确关系：
+
 ```text
-                 ┌── B_m ───────────── Trial A
-accepted s_i ────┤
-                 └── B_(m+1)^* ────── Trial B
+persistent accepted basis
+        B_m
+         │
+         │ fixed-basis temporal update
+         ▼
+       B_m^A ─────────────── Trial A
+         │
+         │ residual R_A
+         │ one-mode enrichment
+         ▼
+    B_(m+1)^(B*) ─────────── Trial B
 ```
 
-而不是：
+与此同时，两个 complete LATIN trials 都从 same accepted state baseline 构造：
+
+```text
+accepted s_i ─────────────── Trial A
+      │
+      └───────────────────── Trial B
+```
+
+禁止的 state chaining：
 
 ```text
 s_i
@@ -559,6 +639,10 @@ Trial A
  ↓
 Trial B
 ```
+
+因此必须同时记住：
+
+> common-baseline 指的是 LATIN state / local / search-direction / damage-global data；basis 则存在 fixed-basis temporal-update 的 provisional working evolution。
 
 ---
 
@@ -648,15 +732,21 @@ $$ \xi_A\le\varepsilon_{\rm LATIN}, $$
 
 $$ s_{i+1}=s_A, $$
 
-$$ \mathcal B_{\rm next}=\mathcal B_m, $$
+$$ \mathcal B_{\rm next}=\mathcal B_m^{A}, $$
 
 $$ \xi_{i+1}=\xi_A. $$
+
+即 atomic commit：
+
+$$ (s_i,\mathcal B_m,\xi_i)\longrightarrow(s_A,\mathcal B_m^{A},\xi_A). $$
 
 并结束 nonlinear solve。
 
 优先级：
 
 > absolute LATIN convergence 高于 saturation/enrichment decision。
+
+这里不能 commit old $\mathcal B_m$，因为 $s_A$ 是由 updated temporal coordinates $\mathcal B_m^A$ 构造的。
 
 ---
 
@@ -666,13 +756,19 @@ $$ \xi_{i+1}=\xi_A. $$
 
 $$ \zeta_A\gt\zeta_{\rm enrich}, $$
 
-则 fixed basis的 temporal update已经带来足够改善。
+则 fixed spatial basis的 temporal update已经带来足够改善。
 
 commit：
 
-$$ (s_i,\mathcal B_m,\xi_i)\rightarrow(s_A,\mathcal B_m,\xi_A). $$
+$$ (s_i,\mathcal B_m,\xi_i)\rightarrow(s_A,\mathcal B_m^{A},\xi_A). $$
 
 进入下一 LATIN iteration。
+
+因此这里的“fixed basis”仅表示：
+
+> spatial basis / rank unchanged。
+
+并不表示 temporal coordinates保持为 old persistent values。
 
 ---
 
@@ -725,9 +821,11 @@ $$ r_{\rm red,A}\le\varepsilon_{\rm red}, $$
 
 因此不强制制造一个不存在的 residual-driven mode。
 
-此时：
+此时 atomic commit Trial A：
 
-> commit Trial A 并进入下一 LATIN iteration。
+$$ (s_i,\mathcal B_m,\xi_i)\rightarrow(s_A,\mathcal B_m^{A},\xi_A). $$
+
+然后进入下一 LATIN iteration。
 
 ---
 
@@ -759,15 +857,23 @@ non-finite mode
 full residual benefit insufficient
 ```
 
-此时：
+此时先在 mode-transaction 层：
 
-$$ \mathcal B_{\rm work}\rightarrow\text{discard}. $$
+$$ \mathcal B_{\rm work}\rightarrow\text{discard}, $$
 
-persistent：
+并恢复到 provisional fixed-basis snapshot：
 
-$$ \mathcal B_m $$
+$$ \mathcal B_m^{A}. $$
 
-保持不变。
+但由于这里讨论的是：
+
+> enrichment 已被真正要求，且 $r_{\rm red,A}\gt\varepsilon_{\rm red}$，
+
+所以 tower v1 不把 $\mathcal B_m^A$ 或 Trial A persistent commit。
+
+整个 LATIN iteration 随后失败，persistent rollback target仍是：
+
+$$ \mathcal B_m. $$
 
 ---
 
@@ -820,11 +926,15 @@ mode accepted后形成合法 complete Trial B。
 
 则：
 
-$$ (s_i,\mathcal B_m,\xi_i)\rightarrow(s_B,\mathcal B_{m+1}^{*},\xi_B). $$
+$$ (s_i,\mathcal B_m,\xi_i)\rightarrow(s_B,\mathcal B_{m+1}^{B*},\xi_B). $$
 
 正式：
 
-$$ \mathcal B_{m+1}=\mathcal B_{m+1}^{*}. $$
+$$ \mathcal B_{m+1}=\mathcal B_{m+1}^{B*}. $$
+
+注意：
+
+> persistent commit 的 enlarged basis 已包含 all-mode temporal re-optimisation后的 coordinates。
 
 ---
 
@@ -882,9 +992,15 @@ indicator non-finite
 
 $$ s_B\rightarrow\text{discard}, $$
 
-$$ \mathcal B_{m+1}^{*}\rightarrow\text{discard}. $$
+$$ \mathcal B_{m+1}^{B*}\rightarrow\text{discard}. $$
 
-persistent baseline仍为：
+mode-transaction working state可回到：
+
+$$ \mathcal B_m^{A}, $$
+
+用于 diagnostics。
+
+但整个 failed LATIN iteration 不 commit Trial A，因此 persistent baseline仍为：
 
 $$ s_i,\mathcal B_m,\xi_i. $$
 
@@ -894,23 +1010,43 @@ $$ s_i,\mathcal B_m,\xi_i. $$
 
 ## 38.1 Mode rejection
 
-仅丢弃 candidate basis工作副本。
+丢弃 candidate enlarged basis，并在 mode-transaction 层恢复：
+
+$$ \mathcal B_m^{A}. $$
+
+这是 **local mode rollback**。
 
 ## 38.2 Trial B failure
 
 丢弃：
 
-$$ s_B,\mathcal B_{m+1}^{*}. $$
+$$ s_B,\mathcal B_{m+1}^{B*}. $$
+
+provisional $\mathcal B_m^A$ 可仅保留为 diagnostics。
 
 ## 38.3 Iteration failure
 
-不产生新的 persistent $s_{i+1}$。
+不产生新的 persistent $s_{i+1}$，也不 persistent commit $\mathcal B_m^A$。
+
+persistent snapshot保持：
+
+$$ s_i,\mathcal B_m,\xi_i. $$
+
+这是 **LATIN iteration rollback**。
 
 ## 38.4 Normal solver commit
 
 同时替换：
 
 $$ s,\mathcal B,\xi. $$
+
+Trial A commit必须使用：
+
+$$ (s_A,\mathcal B_m^A,\xi_A). $$
+
+Trial B commit必须使用：
+
+$$ (s_B,\mathcal B_{m+1}^{B*},\xi_B). $$
 
 因此未来不使用一个含义模糊的万能 `rollback()`。
 
@@ -1503,10 +1639,10 @@ $$ r_{\rm red}\gt\varepsilon_{\rm red}, $$
 # 70. Enrichment inputs
 
 ```text
-baseline basis B_m
-current FixedBasisPGDResult
+provisional fixed-basis B_m^A
+current FixedBasisPGDResult_A
 full forcing f
-current shifted defect / residual
+current shifted defect / residual R_A
 H_sigma
 MaterialPointMetric
 TowerEquilibriumOperator
@@ -1515,6 +1651,14 @@ mode significance controls
 acceptance tolerance
 iteration id
 ```
+
+这里不把 old persistent $\mathcal B_m$ 作为 enrichment working basis。
+
+原因：
+
+> current residual $R_A$ 本身对应已经完成 Eq. (58)–(59) temporal update 的 $\mathcal B_m^A$。
+
+persistent $\mathcal B_m$ 由 outer solver保留，仅作为 whole-iteration rollback target。
 
 ---
 
@@ -1570,9 +1714,11 @@ candidate_fixed_basis_result = None
 
 输入：
 
-$$ \mathcal B_m $$
+$$ \mathcal B_m^{A} $$
 
 必须完全不变。
+
+也就是说 one-mode transaction可以失败，但不得污染 Trial A 的 provisional fixed-basis result。
 
 ---
 
@@ -1582,7 +1728,9 @@ $$ \mathcal B_m $$
 
 `candidate_fixed_basis_result.basis` 为：
 
-$$ \mathcal B_{m+1}^{*}. $$
+$$ \mathcal B_{m+1}^{B*}. $$
+
+它由 $\mathcal B_m^A$ enriched 并完成 enlarged all-mode temporal re-optimisation得到。
 
 仍未 persistent commit。
 
@@ -1899,20 +2047,31 @@ $$ \xi_i. $$
 
 ```text
 accepted baseline
-    ↓
+    s_i, B_m, xi_i
+        ↓
 local stage
-    ↓
+        ↓
 search directions
-    ↓
+        ↓
 prepare FrozenGlobalData
-    ↓
+        ↓
 fixed-basis time update
-    ↓
-build Trial A candidate
-    ↓
+        ↓
+provisional B_m^A
+        ↓
+build Trial A candidate from s_i + B_m^A
+        ↓
 relax/evaluate Trial A
-    ↓
+        ↓
 decision
+```
+
+若 Trial A被接受，则 atomic commit：
+
+```text
+(s_i, B_m, xi_i)
+        ↓
+(s_A, B_m^A, xi_A)
 ```
 
 ---
@@ -1921,20 +2080,30 @@ decision
 
 ```text
 enrichment required
-    ↓
-open one-mode transaction
-    ↓
+and r_red,A > eps_red
+        ↓
+open one-mode transaction on B_m^A
+        ↓
 TowerEnrichmentResult
     ├── rejected
     │      ↓
-    │   fail current transaction
+    │   mode rollback to B_m^A
+    │      ↓
+    │   fail current LATIN iteration
+    │      ↓
+    │   persistent remains (s_i, B_m, xi_i)
+    │
     └── accepted
            ↓
-       build Trial B
+       candidate B_(m+1)^(B*)
+           ↓
+       build Trial B again from SAME s_i
            ↓
        relax/evaluate Trial B
            ↓
-       atomic commit B
+       atomic commit
+           ↓
+       (s_B, B_(m+1)^(B*), xi_B)
 ```
 
 ---
@@ -2239,21 +2408,32 @@ zeta uses same baseline xi_i
 
 ```text
 s_i immutable
-B_m immutable
+persistent B_m immutable
 xi_i frozen
 
-Trial A and Trial B same baseline
+fixed-basis update returns B_m^A
+B_m^A has same spatial rank/modes as B_m
+B_m^A may have different temporal coordinates
+
+Trial A and Trial B use same state baseline s_i
 same local snapshot
 same search directions
 same FrozenGlobalData
 
-mode rejection leaves baseline untouched
+enrichment works on B_m^A
+mode rejection leaves B_m^A unmodified
+mode rejection does not mutate persistent B_m
 
-Trial B failure leaves baseline untouched
+Trial B failure leaves persistent baseline untouched
 
-commit A updates state + indicator but basis unchanged
+commit A updates state + temporal-updated basis + indicator atomically
+    -> (s_A, B_m^A, xi_A)
 
-commit B updates state + basis + indicator atomically
+commit B updates state + enriched basis + indicator atomically
+    -> (s_B, B_(m+1)^(B*), xi_B)
+
+iteration failure restores persistent
+    -> (s_i, B_m, xi_i)
 
 stagnation updates only after commit
 ```
