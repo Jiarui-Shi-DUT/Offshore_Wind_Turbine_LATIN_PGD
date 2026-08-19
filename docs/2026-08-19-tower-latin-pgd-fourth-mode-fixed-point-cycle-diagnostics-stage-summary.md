@@ -5,9 +5,9 @@
 **仓库：`Jiarui-Shi-DUT/Offshore_Wind_Turbine_LATIN_PGD`**  
 **分支：`feature/offshore-wind-turbine-tower-fatigue`**  
 **研究路线：Bhattacharyya et al. 原论文 $x-t$ LATIN-PGD → 2D fiber beam-column offshore wind turbine tower**  
-**阶段范围：围绕 tower LATIN-PGD reversed benchmark 中第 4 个 PGD enrichment mode 出现的 `fixed_point_not_converged`，完成 fixed-point 周期轨道确认、iteration-cap 排查、spatial under-relaxation 排查、raw-map defect 诊断、whole-time BE temporal minimisation 诊断，以及 period-3 三相候选的 post-Gram–Schmidt usefulness 诊断。**  
+**阶段范围：围绕 tower LATIN-PGD reversed benchmark 中第 4 个 PGD enrichment mode 出现的 `fixed_point_not_converged`，完成 fixed-point 周期轨道确认、iteration-cap 排查、spatial under-relaxation 排查、raw-map defect 诊断、whole-time BE temporal minimisation 诊断、period-3 三相候选的 post-Gram–Schmidt usefulness 诊断，以及 top-10 residual-energy deterministic seed / basin-sensitivity 诊断。**  
 **本阶段不包含：正式修改 `latin/` 核心算法、不绕过 fixed-point convergence gate、不把未收敛 raw pair 接受为 persistent mode。**  
-**下一阶段建议：对相同第 4 mode shifted defect 开展 deterministic residual-row seed sensitivity / restart 诊断；在该诊断闭合前，不进入 Anderson/Aitken 或 cycle-aware acceptance 的正式设计。**
+**下一阶段建议：seed / basin sensitivity 已完成并基本排除为主要原因。下一阶段优先回到 Bhattacharyya et al. 原论文 Eq. (59)/(72) 的 DG0 temporal discretisation，恢复其 jump / trace / element-wise temporal algebra，并在不改变 spatial problem、shifted defect 与 transaction semantics 的前提下检验 period-3 orbit 是否与当前 backward-Euler temporal discretisation 的偏离有关；在这一 paper-fidelity 路线闭合前，不优先引入 Anderson/Aitken 或 cycle-aware acceptance。**
 
 ---
 
@@ -1254,13 +1254,18 @@ examples/tower_latin_pgd_fourth_mode_cycle_usefulness_probe.py
 - $\gamma_\lambda$；
 - residual benefit。
 
-下一步计划文件：
-
 ```text
 examples/tower_latin_pgd_fourth_mode_seed_sensitivity_probe.py
 ```
 
-目前应在本阶段总结保存之后再继续应用/运行。
+用途：
+
+- 对同一个 failing fourth-mode Trial-A shifted defect；
+- 按 residual-row energy 从高到低选取前 10 个 deterministic seeds；
+- 每个 seed 独立运行 original unrelaxed Eq. (70)–(72) raw fixed-point map；
+- 记录 convergence、last complete-pair change、lag-3 distance；
+- 对最终 unconverged raw pair 仅作 diagnostic post-basis-management usefulness evaluation；
+- 判断当前 period-3 orbit 是否主要由单一 argmax seed / basin-of-attraction sensitivity 引起。
 
 ---
 
@@ -1290,162 +1295,535 @@ feat: add tower LATIN-PGD activation probe
 
 ---
 
-# 28. 下一阶段的唯一优先问题：seed sensitivity
+# 28. deterministic residual-row seed sensitivity：诊断设计
 
-在进入任何高级 accelerator 之前，下一阶段应先回答：
+在前述诊断完成后，尚未排除的最基础因素是 current deterministic seed / basin-of-attraction sensitivity。
 
-$$ \boxed{\text{period-3 orbit 是否依赖 current deterministic residual-row seed？}} $$
-
-建议对完全相同的：
-
-- persistent baseline；
-- Trial-A state；
-- $H_\sigma$；
-- shifted defect $R_A$；
-- existing rank-3 basis；
-- Eq. (70)–(72) map；
-
-仅改变 initial spatial seed。
-
-优先采用 deterministic family：
-
-```text
-shifted-defect residual energy 最大的前 10 个 time rows
-```
-
-即：
+current tower enrichment seed 取 shifted defect 中 residual energy 最大的 time row：
 
 $$ e_n=\sum_q\frac{v_q}{H_{\sigma,nq}}\Delta_{nq}^2 $$
 
-按 $e_n$ 从大到小选取前 10 个 $n$，并令：
+current default seed time index 为：
+
+$$ n_*=\operatorname*{arg\,max}_n e_n $$
+
+然后构造：
+
+$$ \vec p_{\rm seed}\propto-\vec\Delta_{n_*} $$
+
+这一做法来自 current 1D / tower-v1 numerical choice，不是 Bhattacharyya et al. 原论文规定的唯一 new-pair initialization。
+
+因此需要回答：
+
+> 当前 period-3 orbit 是否只是因为 single argmax residual-row seed 恰好落入一个 periodic basin，而其他合理 deterministic seeds 可以进入真正的 fixed-point basin？
+
+为了只改变 seed，不改变 enrichment subproblem，本诊断固定：
+
+- persistent seven-commit baseline；
+- failing Trial-A rank-3 basis；
+- shifted defect；
+- $H_\sigma$；
+- material-point metric $M$；
+- tower equilibrium operator；
+- original unrelaxed Eq. (70)–(72) alternating map；
+- current sequential-BE temporal half-step；
+- fixed-point tolerance；
+- post-fixed-point formal gate。
+
+唯一变化是 initial spatial seed。
+
+按 $e_n$ 从大到小，选择 top 10 residual-energy time rows：
+
+```text
+rank 1 ... rank 10
+```
+
+分别令：
 
 $$ \vec p_{\rm seed}^{(j)}\propto-\vec\Delta_{n_j} $$
 
-每个 seed 都运行原始 unrelaxed fixed-point，不加 damping，不改 temporal solve。
+每个 seed 最多运行 200 raw fixed-point sweeps。
 
-应记录：
+对于每个 seed，记录：
 
 ```text
-seed time index
-relative residual-row energy
-fixed-point converged?
-fixed-point iterations
-last chi
-lag-3 distance
+time_idx
+energy / max_energy
+converged?
+last_chi
+lag3
 gamma_sp
 gamma_lambda
 diagnostic residual benefit
 candidate relative residual
 ```
 
-判断规则：
+其中：
 
-```text
-若至少一个 alternative seed 收敛
-    ↓
-说明存在 basin / initialization sensitivity
-    ↓
-优先研究 deterministic restart / multi-start
-```
-
-否则：
-
-```text
-若多个高能 residual seeds 均不收敛
-且都进入相同/相近 period-3 orbit
-    ↓
-说明 periodic attractor 对合理 seed family 具有鲁棒性
-    ↓
-再进入 fixed-point stabilization / cycle handling 理论阶段
-```
+- `last_chi` 是 complete-pair lag-1 distance；
+- `lag3` 是 $d(z^k,z^{k-3})$；
+- `gamma_sp`、`gamma_lambda` 与 residual benefit 对 unconverged final pair 仍只是 diagnostic，不能绕过 formal fixed-point gate。
 
 ---
 
-# 29. 如果 seed sensitivity 也失败，后续候选方向的优先级
+# 29. top-10 deterministic seeds 的数值结果
 
-只有在 seed family 诊断闭合后，才建议进入以下方向。
-
-优先级 1：
+共同 baseline：
 
 ```text
-deterministic restart / multi-start
+termination = enrichment_failed
+committed   = 7
+rank        = 3
+xi          = 8.242691499e-04
 ```
 
-如果不同 seed 能进入不同 basin，这是最小改动方案。
-
-优先级 2：
+同一个 failing Trial-A relative residual：
 
 ```text
-Aitken / Anderson / quasi-Newton acceleration
+9.825719402e-01
 ```
 
-前提是明确其作用对象：
-
-- spatial factor？
-- complete pair？
-- gauge-fixed coordinates？
-- raw map residual？
-
-不能直接对任意 rank-one pair 做未经 gauge 处理的向量加速。
-
-优先级 3：
+top 10 residual-energy rows 的结果为：
 
 ```text
-paper-exact DG0 temporal discretisation reconstruction
+ rank  time_idx  energy/max      conv       last_chi           lag3     gamma_sp    gamma_lam  resid_benefit   relative_resid
+    1        26 1.00000e+00     False  6.0348708e-01  2.0937103e-06  9.82546e-01  7.36506e-01  1.6469793e-01    8.2074645e-01
+    2        27 4.45159e-01     False  6.0348703e-01  2.0107669e-06  9.82546e-01  7.36506e-01  1.6469796e-01    8.2074642e-01
+    3        33 4.27624e-01     False  5.7741129e-01  1.7573459e-06  9.82654e-01  8.00501e-01  1.8618887e-01    7.9961535e-01
+    4        10 3.37113e-01     False  6.5824533e-01  6.4798094e-06  9.93119e-01  7.55369e-01  9.8132793e-02    8.8614854e-01
+    5        30 3.29181e-01     False  6.5824341e-01  1.5626691e-06  9.93119e-01  7.55364e-01  9.8133282e-02    8.8614806e-01
+    6        13 2.34966e-01     False  5.7741133e-01  1.6635101e-06  9.82654e-01  8.00501e-01  1.8618882e-01    7.9961540e-01
+    7        32 2.28306e-01     False  5.7739904e-01  3.1213014e-05  9.82643e-01  8.00476e-01  1.8620430e-01    7.9960019e-01
+    8        25 1.90008e-01     False  6.0348749e-01  2.8197257e-06  9.82546e-01  7.36506e-01  1.6469764e-01    8.2074673e-01
+    9        31 1.81869e-01     False  6.0348850e-01  4.6311118e-06  9.82546e-01  7.36507e-01  1.6469694e-01    8.2074742e-01
+   10        29 1.75200e-01     False  6.5824520e-01  6.1372585e-06  9.93119e-01  7.55368e-01  9.8132827e-02    8.8614851e-01
 ```
 
-如果需要继续贴近原论文，应回到 paper Eq. (59)/(72) 的 DG0 formulation，重新推导 jump / trace / element-wise temporal algebra，而不是把当前 whole-time BE diagnostic 当成 paper DG0。
-
-优先级 4：
+最直接的事实是：
 
 ```text
-cycle-aware candidate handling
+10 / 10 seeds:
+converged = False
 ```
 
-这是偏离最大的方案。
-
-若未来考虑：
-
-```text
-detect period-p orbit
-→ evaluate p orbit phases
-→ choose candidate
-```
-
-必须单独建立理论与 transaction semantics，不能从本阶段 diagnostic 直接迁移。
+因此在这一 deterministic residual-row family 中，没有发现能够进入 ordinary fixed point 的 alternative initialization。
 
 ---
 
-# 30. 本阶段最终结论
+# 30. seed sensitivity 结果揭示的是“同一三周期吸引子”，而不是十个不同失败轨道
 
-截至 2026-08-19，第 4 个 PGD mode 问题可以总结为：
+这组结果最重要的地方，不只是 10 个 seeds 都失败，而是不同 seeds 的 late state 几乎严格聚类到此前已经识别的三个 period-3 phases。
 
-1. current tower LATIN-PGD 在 reversed 1-cycle nonlinear benchmark 中，前 3 个 PGD modes 均可正常生成并有效降低 residual；
-2. 第 8 次 attempted outer iteration 需要第 4 mode enrichment；
-3. 第 4 mode raw Eq. (70)–(72) fixed-point 在 30 和 120 sweeps 下均不收敛；
-4. complete-pair lag analysis 证明它不是 scalar indicator 假周期，而是完整 separated pair 正在逼近 period-3 orbit；
-5. constant spatial under-relaxation 只会缩小 relaxed step 并拉长 orbit period；
-6. raw-map defect 在 $\omega=1.0\rightarrow0.05$ 范围内始终约为 $O(0.6)$，因此 constant under-relaxation 被排除；
-7. whole-time coupled BE temporal minimisation 仍不能消除周期行为，因此 sequential BE marching 不是主要原因；
-8. period-3 三个 late phases 均具有很高 spatial novelty 与 temporal significance；
-9. 三个 phases 在 diagnostic post-basis-management 后都能降低 full residual，最佳约 18.6%；
-10. 因此第 4 mode 不是 basis saturation、linear dependence 或 insignificant mode；
-11. 当前最符合证据的解释是：**该 discrete raw alternating map 在当前 enrichment subproblem 上存在稳定/近稳定 period-3 attracting orbit，而 orbit 中包含 genuinely useful enrichment directions；**
-12. 正式算法仍必须保持 `fixed_point_not_converged → reject/rollback`，不能直接提交某个周期 phase；
-13. 下一步首先应排除 deterministic seed / basin-of-attraction sensitivity；
-14. 在 seed sensitivity 闭合前，不应贸然加入 Anderson/Aitken、cycle-aware acceptance 或修改 core `latin/` 实现。
+可以把结果分为三个 phase families。
+
+## 30.1 Phase A
+
+对应：
+
+```text
+time_idx = 26, 27, 25, 31
+```
+
+共同特征：
+
+```text
+last_chi       ≈ 0.603487
+gamma_sp       ≈ 0.982546
+gamma_lambda   ≈ 0.736506
+resid_benefit  ≈ 0.164698
+relative_resid ≈ 0.820746
+```
+
+## 30.2 Phase B
+
+对应：
+
+```text
+time_idx = 33, 13, 32
+```
+
+共同特征：
+
+```text
+last_chi       ≈ 0.577411
+gamma_sp       ≈ 0.98265
+gamma_lambda   ≈ 0.80050
+resid_benefit  ≈ 0.1862
+relative_resid ≈ 0.7996
+```
+
+## 30.3 Phase C
+
+对应：
+
+```text
+time_idx = 10, 30, 29
+```
+
+共同特征：
+
+```text
+last_chi       ≈ 0.658245
+gamma_sp       ≈ 0.993119
+gamma_lambda   ≈ 0.75537
+resid_benefit  ≈ 0.09813
+relative_resid ≈ 0.88615
+```
+
+这三个 families 与此前 unrelaxed sweep 118–120 的三个 late phases 一一对应。
+
+因此改变 initial residual-row seed 后，主要改变的是：
+
+> 最终在 period-3 orbit 的哪一个 phase 上被 max-iteration cutoff 截止。
+
+而不是：
+
+> 进入完全不同的 attractor。
+
+这比单纯的 `10/10 nonconverged` 更强。
 
 ---
 
-# 31. 阶段 checkpoint
+# 31. lag-3 distance 将 period-3 robustness 推进到 $O(10^{-6})$
 
-本阶段应被冻结为以下一句话：
+top-10 seed test 中：
 
-> **Tower LATIN-PGD 第 4 mode 的失败已经从“普通 fixed-point 不收敛”定位为“raw Eq. (70)–(72) complete-pair period-3 attracting orbit”；iteration cap、constant spatial under-relaxation、sequential BE temporal marching、basis saturation 与 mode insignificance 均已通过针对性诊断被排除或显著削弱。period-3 orbit 中存在可显著降低 full residual 的 useful candidates，但 formal fixed-point gate 仍不能绕过。下一阶段首先检验 seed/basin sensitivity，再决定是否需要 fixed-point accelerator 或更接近原论文 DG0 的重构。**
+$$ d_1=O(10^{-1}) $$
+
+但绝大多数 seed 的 lag-3 distance 已达到：
+
+$$ d_3=O(10^{-6}) $$
+
+最大一项约：
+
+$$ 3.12\times10^{-5} $$
+
+而最小项约：
+
+$$ 1.56\times10^{-6} $$
+
+因此对于这些 deterministic initializations，有：
+
+$$ F^3(z)\approx z $$
+
+但：
+
+$$ F(z)\not\approx z $$
+
+相比此前 120-sweep single-seed diagnosis 的：
+
+$$ d_3=O(10^{-4}) $$
+
+现在通过更长 sweep 与多 seed family，period-3 attractor 的数值证据进一步增强了约两个数量级。
+
+所以当前更准确的描述是：
+
+> **在 top-10 residual-energy deterministic seed family 内，当前 discrete Eq. (70)–(72) raw alternating map 鲁棒地收敛到同一个 period-3 attracting orbit，而不是 ordinary fixed point。**
 
 ---
 
-# 32. 与既有阶段文档的衔接
+# 32. seed / basin sensitivity 应如何表述：基本排除主要原因，但不能做无限泛化
+
+本诊断支持：
+
+$$ \boxed{\text{single argmax residual-row seed 不是当前 failure 的主要原因}} $$
+
+因为：
+
+- rank-1 seed；
+- 9 个 alternative high-energy seeds；
+
+共 10 个合理 deterministic initializations 均未收敛，并且进入相同 three-phase orbit。
+
+因此不再建议继续机械扩大：
+
+```text
+top 10 → top 20 → all 41 rows
+```
+
+这类 residual-row restart sweep。
+
+但不能宣称：
+
+$$ \boxed{\text{所有可能的 initial conditions 都不可能收敛}} $$
+
+因为本阶段没有穷举：
+
+- arbitrary linear combinations of residual rows；
+- random spatial seeds；
+- existing-mode-orthogonal seeds；
+- nonlinear optimized seeds；
+- exact unstable fixed-point continuation。
+
+所以科学上应写为：
+
+> **在当前最自然且与 existing implementation 一致的 deterministic residual-row seed family 内，没有证据支持 basin sensitivity 是 period-3 failure 的主要来源。**
+
+而不是：
+
+> “数学上不存在其他 fixed-point basin”。
+
+---
+
+# 33. seed-sensitivity 诊断再次证明 period-3 orbit 中的 candidates 是 genuinely useful
+
+top-10 seed test 仍然得到三类稳定的 post-basis-management diagnostic values。
+
+spatial novelty：
+
+$$ \gamma_{\rm sp}\approx0.9825\sim0.9931 $$
+
+temporal significance：
+
+$$ \gamma_\lambda\approx0.7365\sim0.8005 $$
+
+residual benefit：
+
+$$ 0.0981\sim0.1862 $$
+
+candidate relative residual：
+
+$$ 0.7996\sim0.8861 $$
+
+所以无论 seed 最终落到 period-3 的哪一个 phase：
+
+- new spatial direction 都明显不同于 existing rank-3 spatial subspace；
+- new temporal function 都不 insignificant；
+- enlarged basis all-mode temporal re-optimisation 都能降低 full residual。
+
+因此 seed-sensitivity test 不仅排除了一个 initialization hypothesis，还独立重复验证了：
+
+> **period-3 orbit 不是围绕一个 insignificant / linearly-dependent mode 的数值噪声。**
+
+---
+
+# 34. 当前已完成的排除链
+
+截至本次 seed-sensitivity test，第 4 mode failure 的排除链可以写成：
+
+```text
+fixed-point iteration cap too small?
+    ↓ NO
+30 → 120 sweeps 仍形成稳定三周期
+
+scalar chi only looks periodic?
+    ↓ NO
+complete-pair lag-3 distance → very small
+
+constant spatial under-relaxation?
+    ↓ NO
+relaxed step shrinks, raw-map defect remains O(0.6)
+
+sequential BE temporal marching?
+    ↓ NOT MAIN CAUSE
+whole-time coupled BE least-squares still cycles
+
+basis saturation / insignificant fourth mode?
+    ↓ NO
+gamma_sp ≈ 0.98–0.99
+gamma_lambda ≈ 0.74–0.80
+residual benefit ≈ 9.8%–18.6%
+
+single residual-row seed / basin sensitivity?
+    ↓ NO EVIDENCE AS MAIN CAUSE
+top-10 deterministic high-energy residual-row seeds
+all return to same period-3 attractor
+```
+
+因此当前问题已经被收敛到比最初 `fixed_point_not_converged` 更具体的位置：
+
+$$ \boxed{\text{current discrete Eq. (70)–(72) raw alternating map itself}} $$
+
+但“current discrete”仍包含一个重要的 project-specific choice：
+
+$$ \boxed{\text{backward-Euler temporal discretisation}} $$
+
+而原论文明确采用的是 DG0 temporal discretisation。
+
+---
+
+# 35. seed sensitivity 闭合后，下一研究路线的重新排序
+
+seed sensitivity 闭合后，后续候选方向需要重新排序。
+
+## 35.1 第一优先级：paper-fidelity DG0 reconstruction
+
+当前最值得检查的明确 source-layer discrepancy 是：
+
+```text
+paper:
+Eq. (59)/(72) temporal minimisation
++ zero-order discontinuous Galerkin temporal discretisation
+
+current tower v1:
+same residual/minimisation structure
++ project-validated backward Euler discretisation
+```
+
+whole-time BE diagnostic 已经说明：
+
+```text
+sequential vs global-in-time BE scope
+```
+
+不是主要原因。
+
+但它没有回答：
+
+```text
+BE vs original DG0 discrete temporal algebra
+```
+
+是否改变 fixed-point map 的动力学性质。
+
+因此下一阶段应回到原论文与其引用的 temporal discretisation资料，逐步恢复：
+
+- temporal finite-element trial/test space；
+- DG0 slab-wise unknown；
+- inter-slab jump term；
+- left/right trace；
+- weak temporal derivative；
+- Eq. (59) 的 discrete stationarity；
+- Eq. (72) single-new-mode temporal equation；
+- 与现有 BE formula 的准确关系。
+
+目标不是立即替换 core，而是先得到：
+
+$$ \boxed{\text{paper-faithful DG0 discrete Eq. (72)}} $$
+
+再构造 diagnostic implementation。
+
+## 35.2 第二优先级：fixed-point accelerator
+
+只有在 paper-faithful DG0 仍出现相同 period-3 attractor 时，再优先考虑：
+
+```text
+Aitken
+Anderson
+quasi-Newton
+```
+
+但 accelerator 的作用空间必须先解决 rank-one gauge：
+
+$$ (\vec p,\lambda)\equiv(c\vec p,\lambda/c) $$
+
+以及 sign ambiguity：
+
+$$ (\vec p,\lambda)\equiv(-\vec p,-\lambda) $$
+
+所以不能直接把 unprocessed pair coordinates 当普通 Euclidean vector 做 Anderson acceleration。
+
+## 35.3 第三优先级：cycle-aware candidate handling
+
+例如：
+
+```text
+detect period-3
+→ inspect three phases
+→ choose best residual-benefit candidate
+```
+
+虽然当前数据已经证明某些 phases 很 useful，但这种规则会改变原论文的 fixed-point acceptance logic。
+
+因此仍是较后方案。
+
+---
+
+# 36. 为什么现在优先 DG0，而不是立即 Anderson
+
+选择 paper-fidelity DG0 优先，不是因为已经证明 BE 是错误的。
+
+相反，当前证据是：
+
+> current BE implementation 在多个测试中是数值自洽的，而且 whole-time BE 也不能解除周期。
+
+优先 DG0 的原因是研究路线本身：
+
+1. 当前第一版 tower LATIN-PGD 的目标是尽可能忠实迁移 Bhattacharyya et al. 原方法；
+2. seed sensitivity、simple damping 与 sequential-vs-whole-time BE 已经逐层排除；
+3. DG0 是目前尚未恢复、且原论文明确写出的 temporal discretisation；
+4. 在添加新的 nonlinear accelerator 之前，应先确认这一 paper-explicit component 是否会改变 enrichment fixed-point behavior。
+
+所以正确的问题不是：
+
+> “BE 已经失败，因此必须换 DG0。”
+
+而是：
+
+> “在增加新的工程算法之前，应先恢复 paper-explicit DG0，确认 period-3 是原方法本身的离散 fixed-point pathology，还是 current BE discretisation 的特定表现。”
+
+---
+
+# 37. 当前正式算法仍保持不变
+
+尽管诊断越来越深入，本阶段仍然没有理由修改正式 `latin/` core。
+
+正式 logic 保持：
+
+```text
+Trial A
+    ↓
+need enrichment
+    ↓
+raw fixed point
+    ↓
+if fixed_point_not_converged:
+    reject current transaction
+    rollback
+```
+
+尤其不能因为：
+
+```text
+Phase B residual benefit ≈ 18.6%
+```
+
+就直接接受该 raw pair。
+
+seed-sensitivity 结果反而说明：
+
+- three phases 是 attractor 的系统性组成；
+- 不是某个特殊 seed 偶然得到的 candidate；
+- 如果未来选择其中一相，就必须显式设计新的 cycle-selection theory。
+
+所以 formal convergence gate 继续冻结。
+
+---
+
+# 38. 本阶段最终结论
+
+截至 2026-08-19，第 4 个 PGD mode fixed-point pathology 已经得到以下阶段性结论：
+
+1. current tower LATIN-PGD reversed nonlinear benchmark 中，前 3 个 PGD modes 均能正常生成并明显降低 reduced residual；
+2. 第 8 次 attempted outer iteration 的 Trial A 需要继续 enrichment，因此触发第 4 mode；
+3. 第 4 mode raw Eq. (70)–(72) fixed-point 在 30、120 乃至后续 200–400 sweeps 的各类诊断中都没有趋向 ordinary fixed point；
+4. complete-pair lag analysis 证明该行为是真正的 period-3 orbit，而不是 scalar indicator 的假周期；
+5. constant spatial-only under-relaxation 只能缩小 relaxed step，并不能降低 raw-map defect；
+6. whole-time coupled BE temporal minimisation 仍然不能消除周期，因此 sequential BE time marching 不是主要原因；
+7. period-3 三个 phases 的 spatial novelty 均约 0.98–0.99；
+8. temporal significance 均约 0.74–0.80；
+9. diagnostic full residual benefit 约为 9.8%–18.6%，所以第 4 mode 不是 basis saturation 或 insignificant enrichment；
+10. top-10 residual-energy deterministic seeds 全部 `converged=False`；
+11. 不同 seeds 并没有形成多个不同失败轨道，而是全部回到同一个 three-phase attractor；
+12. top-10 test 中 lag-3 distance 已达到约 $10^{-6}$–$10^{-5}$，进一步加强 period-3 attracting-orbit 证据；
+13. 因此 single argmax residual-row initialization / basin sensitivity 在这一合理 deterministic seed family 内已经基本排除为主要原因；
+14. 但不能无限泛化为“所有可能 seeds 均不存在 fixed-point basin”；
+15. 正式算法仍保持 `fixed_point_not_converged → reject / rollback`；
+16. 当前下一项最重要的 paper-fidelity discrepancy 是 original DG0 temporal discretisation 尚未恢复；
+17. 下一阶段应优先恢复 Eq. (59)/(72) 的 DG0 discrete algebra，再判断 period-3 是否仍存在；
+18. 在 DG0 路线闭合前，不优先修改 core，不优先加入 Anderson/Aitken，也不采用 cycle-aware acceptance。
+
+---
+
+# 39. 更新后的阶段 checkpoint
+
+本阶段现在应被冻结为：
+
+> **Tower LATIN-PGD 第 4 mode 的 failure 已经从一般性的 `fixed_point_not_converged` 定位为一个对 top-10 high-energy deterministic residual-row seeds 均鲁棒的 complete-pair period-3 attracting orbit。增加 iteration cap、constant spatial under-relaxation、改变 sequential BE 为 whole-time coupled BE、以及更换合理 deterministic residual-row seed 均不能使 raw Eq. (70)–(72) map 收敛到 ordinary fixed point。与此同时，period-3 三个 phases 都具有很高 spatial novelty、temporal significance 和显著 residual benefit，因此 failure 不是 mode saturation 或 insignificance。formal fixed-point gate 仍不能绕过。下一阶段首先恢复 Bhattacharyya et al. 原论文 Eq. (59)/(72) 的 DG0 temporal discretisation，再决定是否需要 fixed-point accelerator 或 cycle-aware algorithm。**
+
+---
+
+# 40. 与既有阶段文档的衔接
 
 本总结应与以下既有文档连续阅读：
 
@@ -1476,7 +1854,21 @@ docs/2026-08-17-tower-latin-pgd-post-fixed-point-gram-schmidt-mode-acceptance-st
 - full residual benefit；
 - rollback 与 acceptance。
 
-本文件的定位不是替代上述理论冻结，而是记录：
+本文件当前已经覆盖：
 
-> **当这些理论与算法 specification 第一次在 nonlinear tower reversed benchmark 的第 4 enrichment mode 上出现真实 fixed-point pathology 时，我们如何逐层诊断、排除错误解释，并把下一步研究问题收敛到 seed/basin sensitivity。**
+```text
+baseline fourth-mode failure
+→ period-3 confirmation
+→ iteration-cap exclusion
+→ spatial under-relaxation exclusion
+→ raw-map defect
+→ whole-time BE temporal-scope diagnosis
+→ three-phase usefulness diagnosis
+→ top-10 deterministic seed / basin-sensitivity diagnosis
+```
 
+因此下一份独立理论阶段总结应从：
+
+> **Bhattacharyya et al. Eq. (59)/(72) original DG0 temporal discretisation 的资料恢复与离散推导**
+
+开始，而不再重复本文件已闭合的 fixed-point pathology 诊断链。
