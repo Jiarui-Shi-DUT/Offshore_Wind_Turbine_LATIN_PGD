@@ -21,6 +21,15 @@ orthogonality, is responsible for the persistent period-3 orbit.
 The temporal half-step remains the current backward-Euler Eq. (72) solve in all
 three cases.  The current tower complete-pair convergence criterion and
 tolerance are also retained in all three cases.
+
+Additional diagnostics in this version:
+
+1) free-DOF equilibrium of the final spatial stress mode
+
+       H^T M s ~= 0,
+
+2) immediate backward-Euler mechanical-residual benefit of the final raw
+   separated mode.
 """
 
 from __future__ import annotations
@@ -77,6 +86,11 @@ class MapResult:
     final_novelty: float
     maximum_basis_overlap: float
     final_spatial_norm: float
+    equilibrium_absolute_norm: float
+    equilibrium_relative_norm: float
+    residual_norm_before: float
+    residual_norm_after_raw_mode: float
+    raw_mode_residual_benefit: float
 
 
 def _build_problem():
@@ -491,6 +505,93 @@ def _run_map(
             converged = True
             break
 
+    # ---------------------------------------------------------------
+    # Final-mode equilibrium audit.
+    #
+    # For the separated stress mode s(q), homogeneous correction
+    # equilibrium on free structural DOFs requires
+    #
+    #     H^T M s = 0.
+    # ---------------------------------------------------------------
+    equilibrium_residual = operator.equilibrium_residual(
+        current.spatial_stress
+    )
+    equilibrium_absolute_norm = float(
+        np.linalg.norm(equilibrium_residual)
+    )
+
+    # A cancellation-free internal-force scale for a dimensionless
+    # relative equilibrium residual.
+    equilibrium_scale_vector = (
+        np.abs(operator.compatibility_matrix).T
+        @ (
+            metric.weights
+            * np.abs(current.spatial_stress)
+        )
+    )
+    equilibrium_scale = float(
+        np.linalg.norm(equilibrium_scale_vector)
+    )
+    equilibrium_relative_norm = (
+        equilibrium_absolute_norm
+        / max(
+            equilibrium_scale,
+            np.finfo(np.float64).eps,
+        )
+    )
+
+    # ---------------------------------------------------------------
+    # Immediate residual efficacy of the converged raw separated mode.
+    #
+    # Existing Trial-A residual:
+    #
+    #     R_A
+    #
+    # Added-mode contribution:
+    #
+    #     p * lambda_dot - H_sigma * s * lambda.
+    #
+    # Evaluate the before/after fields using the same backward-Euler
+    # residual norm used by tower_pgd_enrichment.py.
+    # ---------------------------------------------------------------
+    residual_norm_before = enrichment_module._be_residual_norm(
+        defect,
+        time,
+        H_sigma,
+        metric,
+    )
+
+    residual_after_raw_mode_field = (
+        defect
+        + (
+            current.temporal_rate[:, None]
+            * current.spatial_plastic_strain[None, :]
+        )
+        - (
+            H_sigma
+            * current.temporal_amplitude[:, None]
+            * current.spatial_stress[None, :]
+        )
+    )
+
+    residual_norm_after_raw_mode = (
+        enrichment_module._be_residual_norm(
+            residual_after_raw_mode_field,
+            time,
+            H_sigma,
+            metric,
+        )
+    )
+
+    if residual_norm_before <= np.finfo(np.float64).eps:
+        raw_mode_residual_benefit = 0.0
+    else:
+        raw_mode_residual_benefit = (
+            1.0
+            - residual_norm_after_raw_mode
+            / residual_norm_before
+        )
+
     return MapResult(
         label=label,
         converged=converged,
@@ -507,6 +608,11 @@ def _run_map(
         final_novelty=float(novelties[-1]),
         maximum_basis_overlap=float(maximum_overlap),
         final_spatial_norm=float(metric.norm(current.spatial_plastic_strain)),
+        equilibrium_absolute_norm=equilibrium_absolute_norm,
+        equilibrium_relative_norm=equilibrium_relative_norm,
+        residual_norm_before=residual_norm_before,
+        residual_norm_after_raw_mode=residual_norm_after_raw_mode,
+        raw_mode_residual_benefit=raw_mode_residual_benefit,
     )
 
 
@@ -539,6 +645,31 @@ def _print_result(result: MapResult) -> None:
     print(
         "  final ||p||_M       = {:.12e}".format(
             result.final_spatial_norm
+        )
+    )
+    print(
+        "  equilibrium ||r||   = {:.12e}".format(
+            result.equilibrium_absolute_norm
+        )
+    )
+    print(
+        "  equilibrium relative= {:.12e}".format(
+            result.equilibrium_relative_norm
+        )
+    )
+    print(
+        "  BE residual before  = {:.12e}".format(
+            result.residual_norm_before
+        )
+    )
+    print(
+        "  BE residual after   = {:.12e}".format(
+            result.residual_norm_after_raw_mode
+        )
+    )
+    print(
+        "  raw-mode benefit    = {:.6%}".format(
+            result.raw_mode_residual_benefit
         )
     )
     print("  chi tail            =", _tail_text(result.history))
@@ -639,8 +770,9 @@ def main() -> None:
             "fourth-mode fixed-point failure."
         )
         print(
-            "  Next step should be a derivation audit of tower Eq.(70)-(71) "
-            "against the direct residual-minimisation form before any core change."
+            "  The new equilibrium and BE-residual diagnostics should now be "
+            "used to decide whether this converged mode is structurally "
+            "admissible and mechanically useful."
         )
     elif not result_c.converged:
         print(
@@ -655,8 +787,8 @@ def main() -> None:
         )
     else:
         print(
-            "  Inspect A/B/C tails and lag distances carefully before drawing "
-            "a causal conclusion."
+            "  Inspect A/B/C tails, equilibrium residuals, and BE residual "
+            "benefits carefully before drawing a causal conclusion."
         )
     print(
         "  Diagnostic only: latin/ core and transaction acceptance semantics "
