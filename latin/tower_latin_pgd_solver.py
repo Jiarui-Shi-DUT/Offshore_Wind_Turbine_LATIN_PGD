@@ -394,6 +394,7 @@ def _validate_solver_inputs(
     field_invariance_tolerance: float,
     reorthogonalization_passes: int,
     rcond: float,
+    spatial_strategy: str,
 ) -> Tuple[MaterialParameters, ...]:
     if not isinstance(initial_state, LatinStateTower):
         raise TypeError("initial_state must be a LatinStateTower.")
@@ -507,6 +508,10 @@ def _validate_solver_inputs(
     if passes not in (1, 2):
         raise ValueError("reorthogonalization_passes must be 1 or 2.")
     _positive_finite(rcond, "rcond")
+    if spatial_strategy not in ("paper_galerkin", "residual_ls"):
+        raise ValueError(
+            "spatial_strategy must be 'paper_galerkin' or 'residual_ls'."
+        )
 
     return material_tuple
 
@@ -652,6 +657,7 @@ def solve_tower_latin_pgd(
     field_invariance_tolerance: float = 1.0e-10,
     reorthogonalization_passes: int = 2,
     rcond: float = 1.0e-12,
+    spatial_strategy: str = "paper_galerkin",
 ) -> TowerLatinPGDResult:
     """Run tower LATIN-PGD iterations with strict Trial-A/B transactions."""
     material_tuple = _validate_solver_inputs(
@@ -681,6 +687,7 @@ def solve_tower_latin_pgd(
         field_invariance_tolerance=field_invariance_tolerance,
         reorthogonalization_passes=reorthogonalization_passes,
         rcond=rcond,
+        spatial_strategy=spatial_strategy,
     )
 
     accepted_state = initial_state.copy()
@@ -912,6 +919,7 @@ def solve_tower_latin_pgd(
             reorthogonalization_passes=reorthogonalization_passes,
             reduced_tolerance=reduced_tolerance,
             rcond=rcond,
+            spatial_strategy=spatial_strategy,
         )
         last_enrichment_result = enrichment
 

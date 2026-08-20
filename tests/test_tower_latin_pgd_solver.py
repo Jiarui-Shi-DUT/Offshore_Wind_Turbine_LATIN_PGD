@@ -478,9 +478,16 @@ class TestTowerLatinPGDSolver(unittest.TestCase):
             "latin.tower_latin_pgd_solver.enrich_tower_pgd_basis_once",
             return_value=enrichment,
         ) as enrich_mock:
-            result = self._solve(initial_basis=empty)
+            result = self._solve(
+                initial_basis=empty,
+                spatial_strategy="residual_ls",
+            )
 
         enrich_mock.assert_called_once()
+        self.assertEqual(
+            enrich_mock.call_args.kwargs["spatial_strategy"],
+            "residual_ls",
+        )
         self.assertEqual(result.commit_kind_history, ("B",))
         self.assertEqual(result.basis.n_modes, 1)
         self.assertEqual(
@@ -590,6 +597,13 @@ class TestTowerLatinPGDSolver(unittest.TestCase):
         self.assertEqual(result.iterations, 2)
         self.assertEqual(result.commit_kind_history, ("A", "A"))
         enrich_mock.assert_not_called()
+
+    def test_unknown_spatial_strategy_is_rejected(self) -> None:
+        with self.assertRaisesRegex(
+            ValueError,
+            "spatial_strategy",
+        ):
+            self._solve(spatial_strategy="not_a_strategy")
 
 
 if __name__ == "__main__":
