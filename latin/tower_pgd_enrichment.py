@@ -5,9 +5,13 @@ One-mode PGD enrichment transaction for the tower LATIN-PGD global stage.
 Sequence:
     shifted defect R_A
     -> residual-driven spatial seed
+    -> optional in-loop M-orthogonalisation for residual-LS
     -> Eq. (72) temporal solve
-    -> Eq. (70)-(71) spatial solve
+    -> selectable spatial half-step:
+         * paper_galerkin: tower Eq. (70)-(71)
+         * residual_ls: matrix-free weighted residual-LS + LSMR
     -> M-norm scale normalisation
+    -> optional in-loop M-orthogonalisation for residual-LS
     -> Eq. (72) temporal solve
     -> complete-pair fixed-point convergence
     -> M-weighted modified Gram-Schmidt
@@ -34,6 +38,13 @@ from latin.tower_equilibrium_operator import MaterialPointMetric, TowerEquilibri
 from latin.tower_pgd_time_update import FixedBasisPGDResult, update_tower_pgd_time_functions
 
 FloatArray = NDArray[np.float64]
+
+_SPATIAL_STRATEGY_PAPER_GALERKIN = "paper_galerkin"
+_SPATIAL_STRATEGY_RESIDUAL_LS = "residual_ls"
+_VALID_SPATIAL_STRATEGIES = (
+    _SPATIAL_STRATEGY_PAPER_GALERKIN,
+    _SPATIAL_STRATEGY_RESIDUAL_LS,
+)
 
 
 class _CandidateFailure(RuntimeError):
@@ -304,6 +315,46 @@ def _pair_change(previous: PGDModeTower, current: PGDModeTower, time: FloatArray
     return num / den
 
 
+def _inloop_orthogonalize_spatial(
+    basis: PGDBasisTower,
+    raw: FloatArray,
+    metric: MaterialPointMetric,
+    minimum_spatial_norm: float,
+    rcond: float,
+) -> FloatArray:
+    """Project one raw fixed-point spatial iterate off the existing basis.
+
+    This is the production-candidate counterpart of the in-loop
+    M-orthogonalisation used by the successful fourth-mode Case C diagnostic.
+    It acts only on the *new raw iterate*.  Existing basis coordinates are not
+    changed here; the exact post-fixed-point coordinate transformation remains
+    the responsibility of _post_fixed_point_transform().
+    """
+    work = np.asarray(raw, dtype=np.float64).copy()
+    raw_norm = metric.norm(work)
+    if not np.isfinite(raw_norm) or raw_norm <= minimum_spatial_norm:
+        raise _CandidateFailure("inloop_spatial_iterate_degenerate")
+
+    if basis.n_modes > 0:
+        P = basis.spatial_plastic_strain_matrix()
+        weighted_P = metric.weights[:, None] * P
+        gram = P.T @ weighted_P
+        rhs = P.T @ (metric.weights * work)
+        coeff = np.linalg.lstsq(
+            gram,
+            rhs,
+            rcond=rcond,
+        )[0]
+        work -= P @ coeff
+
+    norm = metric.norm(work)
+    if not np.isfinite(norm) or norm <= minimum_spatial_norm:
+        raise _CandidateFailure(
+            "inloop_spatial_candidate_linearly_dependent"
+        )
+    return work / norm
+
+
 def _raw_fixed_point(
     basis: PGDBasisTower,
     time: FloatArray,
@@ -315,8 +366,18 @@ def _raw_fixed_point(
     fixed_point_tolerance: float,
     max_fixed_point_iterations: int,
     minimum_spatial_norm: float,
+    spatial_strategy: str = _SPATIAL_STRATEGY_PAPER_GALERKIN,
+    rcond: float = 1.0e-12,
 ) -> Tuple[PGDModeTower, FloatArray, bool]:
     p = _seed(defect, H_sigma, metric, minimum_spatial_norm)
+    if spatial_strategy == _SPATIAL_STRATEGY_RESIDUAL_LS:
+        p = _inloop_orthogonalize_spatial(
+            basis,
+            p,
+            metric,
+            minimum_spatial_norm,
+            rcond,
+        )
     s = operator.apply_spatial(p).stress
     lam, rate = _temporal_solve(p, s, time, defect, H_sigma, metric)
     current = PGDModeTower(p, s, lam, rate, iteration_added)
@@ -324,16 +385,59 @@ def _raw_fixed_point(
     converged = False
 
     for _ in range(max_fixed_point_iterations):
-        p, s = _spatial_solve(
-            current.temporal_amplitude,
-            current.temporal_rate,
-            time,
-            defect,
-            H_sigma,
-            metric,
-            operator,
-            minimum_spatial_norm,
-        )
+        if spatial_strategy == _SPATIAL_STRATEGY_PAPER_GALERKIN:
+            p, s = _spatial_solve(
+                current.temporal_amplitude,
+                current.temporal_rate,
+                time,
+                defect,
+                H_sigma,
+                metric,
+                operator,
+                minimum_spatial_norm,
+            )
+        elif spatial_strategy == _SPATIAL_STRATEGY_RESIDUAL_LS:
+            # Lazy import keeps the existing paper-Galerkin path free from a
+            # mandatory SciPy import unless the residual-LS candidate is used.
+            from latin.tower_residual_ls_spatial import (
+                solve_tower_residual_ls_spatial,
+            )
+
+            try:
+                residual_ls = solve_tower_residual_ls_spatial(
+                    temporal_amplitude=current.temporal_amplitude,
+                    temporal_rate=current.temporal_rate,
+                    defect=defect,
+                    time=time,
+                    H_sigma=H_sigma,
+                    metric=metric,
+                    equilibrium_operator=operator,
+                    minimum_spatial_norm=minimum_spatial_norm,
+                )
+            except (ValueError, FloatingPointError, np.linalg.LinAlgError) as exc:
+                raise _CandidateFailure(
+                    "residual_ls_spatial_solver_failed"
+                ) from exc
+
+            if not residual_ls.converged:
+                raise _CandidateFailure(
+                    "residual_ls_spatial_solver_not_converged"
+                )
+
+            p = _inloop_orthogonalize_spatial(
+                basis,
+                residual_ls.spatial_plastic_strain,
+                metric,
+                minimum_spatial_norm,
+                rcond,
+            )
+            s = operator.apply_spatial(p).stress
+        else:
+            # Public validation should make this unreachable.
+            raise ValueError(
+                f"Unknown spatial_strategy: {spatial_strategy!r}."
+            )
+
         lam, rate = _temporal_solve(p, s, time, defect, H_sigma, metric)
         candidate = PGDModeTower(p, s, lam, rate, iteration_added)
         chi = _pair_change(current, candidate, time, H_sigma, metric)
@@ -512,6 +616,7 @@ def enrich_tower_pgd_basis_once(
     reorthogonalization_passes: int = 2,
     reduced_tolerance: float = 1.0e-4,
     rcond: float = 1.0e-12,
+    spatial_strategy: str = _SPATIAL_STRATEGY_PAPER_GALERKIN,
 ) -> TowerEnrichmentResult:
     """
     Attempt exactly one Add-a-pair transaction from provisional B_m^A.
@@ -557,6 +662,13 @@ def enrich_tower_pgd_basis_once(
     )
     if reorthogonalization_passes not in (1, 2):
         raise ValueError("reorthogonalization_passes must be 1 or 2.")
+    if not isinstance(spatial_strategy, str):
+        raise TypeError("spatial_strategy must be a string.")
+    if spatial_strategy not in _VALID_SPATIAL_STRATEGIES:
+        raise ValueError(
+            "spatial_strategy must be one of "
+            f"{_VALID_SPATIAL_STRATEGIES}."
+        )
 
     basis = fixed_basis_result.basis
     before = _be_residual_norm(defect, t, Hs, metric)
@@ -575,6 +687,8 @@ def enrich_tower_pgd_basis_once(
             float(fixed_point_tolerance),
             max_fixed_point_iterations,
             float(minimum_spatial_norm),
+            spatial_strategy,
+            float(rcond),
         )
     except _CandidateFailure as failure:
         return _reject(failure.reason, basis, before)
