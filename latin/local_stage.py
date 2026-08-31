@@ -261,7 +261,13 @@ def _integrate_one_local_step(
     energy_new: float,
     material: MaterialParameters,
 ) -> FloatArray:
-    """Advance one local material history step with classical RK4."""
+    """
+    Advance one local material history step with classical RK4.
+
+    OPT-3 keeps the RK4 formula unchanged while flattening the hot call path.
+    The prescribed force histories are evaluated once at the three distinct
+    RK4 abscissae (0, 1/2, 1), with the midpoint reused by k2 and k3.
+    """
     if time_step <= 0.0:
         raise ValueError("time_step must be positive.")
 
@@ -273,33 +279,100 @@ def _integrate_one_local_step(
     if state_start.shape != (4,):
         raise ValueError("Local internal state must have shape (4,).")
 
-    def rate(state: FloatArray, fraction: float) -> FloatArray:
-        return _local_state_rate(
-            state=state,
-            fraction=fraction,
-            stress_old=stress_old,
-            stress_new=stress_new,
-            beta_old=beta_old,
-            beta_new=beta_new,
-            transformed_force_old=transformed_force_old,
-            transformed_force_new=transformed_force_new,
-            energy_old=energy_old,
-            energy_new=energy_new,
-            material=material,
-        )
+    # Preserve the original interpolation arithmetic exactly, but evaluate
+    # each distinct RK4 force state only once per local time step.
+    stress_start = float(
+        stress_old + 0.0 * (stress_new - stress_old)
+    )
+    stress_mid = float(
+        stress_old + 0.5 * (stress_new - stress_old)
+    )
+    stress_end = float(
+        stress_old + 1.0 * (stress_new - stress_old)
+    )
 
-    k1 = rate(state_start, 0.0)
-    k2 = rate(
-        state_start + 0.5 * time_step * k1,
-        0.5,
+    beta_start = float(
+        beta_old + 0.0 * (beta_new - beta_old)
     )
-    k3 = rate(
-        state_start + 0.5 * time_step * k2,
-        0.5,
+    beta_mid = float(
+        beta_old + 0.5 * (beta_new - beta_old)
     )
-    k4 = rate(
-        state_start + time_step * k3,
-        1.0,
+    beta_end = float(
+        beta_old + 1.0 * (beta_new - beta_old)
+    )
+
+    transformed_force_start = float(
+        transformed_force_old
+        + 0.0 * (transformed_force_new - transformed_force_old)
+    )
+    transformed_force_mid = float(
+        transformed_force_old
+        + 0.5 * (transformed_force_new - transformed_force_old)
+    )
+    transformed_force_end = float(
+        transformed_force_old
+        + 1.0 * (transformed_force_new - transformed_force_old)
+    )
+
+    energy_start = float(
+        energy_old + 0.0 * (energy_new - energy_old)
+    )
+    energy_mid = float(
+        energy_old + 0.5 * (energy_new - energy_old)
+    )
+    energy_end = float(
+        energy_old + 1.0 * (energy_new - energy_old)
+    )
+
+    k1 = np.asarray(
+        local_rates_from_forces(
+            stress=stress_start,
+            beta=beta_start,
+            transformed_force=transformed_force_start,
+            energy_release_rate=energy_start,
+            damage=float(state_start[3]),
+            material=material,
+        ),
+        dtype=np.float64,
+    )
+
+    state_k2 = state_start + 0.5 * time_step * k1
+    k2 = np.asarray(
+        local_rates_from_forces(
+            stress=stress_mid,
+            beta=beta_mid,
+            transformed_force=transformed_force_mid,
+            energy_release_rate=energy_mid,
+            damage=float(state_k2[3]),
+            material=material,
+        ),
+        dtype=np.float64,
+    )
+
+    state_k3 = state_start + 0.5 * time_step * k2
+    k3 = np.asarray(
+        local_rates_from_forces(
+            stress=stress_mid,
+            beta=beta_mid,
+            transformed_force=transformed_force_mid,
+            energy_release_rate=energy_mid,
+            damage=float(state_k3[3]),
+            material=material,
+        ),
+        dtype=np.float64,
+    )
+
+    state_k4 = state_start + time_step * k3
+    k4 = np.asarray(
+        local_rates_from_forces(
+            stress=stress_end,
+            beta=beta_end,
+            transformed_force=transformed_force_end,
+            energy_release_rate=energy_end,
+            damage=float(state_k4[3]),
+            material=material,
+        ),
+        dtype=np.float64,
     )
 
     state_new = state_start + (time_step / 6.0) * (
