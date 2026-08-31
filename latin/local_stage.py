@@ -42,6 +42,28 @@ def _positive_part(value: float) -> float:
     return float(max(value, 0.0))
 
 
+def _clip_damage_scalar(
+    damage: float,
+    upper_bound: float,
+) -> float:
+    """
+    Clamp one scalar damage value without NumPy array dispatch.
+
+    This is mathematically equivalent to
+
+        np.clip(damage, 0.0, upper_bound)
+
+    for the finite scalar damage values used by the constitutive update,
+    while avoiding the overhead of invoking NumPy's general-purpose array
+    machinery for a single floating-point value.
+    """
+    if damage < 0.0:
+        return 0.0
+    if damage > upper_bound:
+        return float(upper_bound)
+    return float(damage)
+
+
 def isotropic_force_from_transformed_force(
     transformed_force: float,
     material: MaterialParameters,
@@ -83,12 +105,9 @@ def local_rates_from_forces(
     -------
     plastic_strain_rate, alpha_rate, r_bar_rate, damage_rate
     """
-    damage_safe = float(
-        np.clip(
-            damage,
-            0.0,
-            material.damage_upper_bound,
-        )
+    damage_safe = _clip_damage_scalar(
+        damage,
+        material.damage_upper_bound,
     )
     one_minus_damage = 1.0 - damage_safe
 
@@ -167,12 +186,9 @@ def unilateral_elastic_strain(
     Compression:
         eps_e = sigma / [E (1 - h D)]
     """
-    damage_safe = float(
-        np.clip(
-            damage,
-            0.0,
-            material.damage_upper_bound,
-        )
+    damage_safe = _clip_damage_scalar(
+        damage,
+        material.damage_upper_bound,
     )
 
     if stress >= 0.0:
@@ -289,9 +305,8 @@ def _integrate_one_local_step(
         k1 + 2.0 * k2 + 2.0 * k3 + k4
     )
     state_new = np.asarray(state_new, dtype=np.float64)
-    state_new[3] = np.clip(
-        state_new[3],
-        0.0,
+    state_new[3] = _clip_damage_scalar(
+        float(state_new[3]),
         material.damage_upper_bound,
     )
 
