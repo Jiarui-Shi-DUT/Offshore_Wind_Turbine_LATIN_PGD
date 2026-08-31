@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import cached_property
 from typing import Callable, Optional, Tuple, cast
 
 import numpy as np
@@ -47,15 +48,20 @@ class MaterialParameters:
     # Numerical protection
     damage_upper_bound: float = 0.999
 
-    @property
+    @cached_property
     def k_viscoplastic(self) -> float:
-        """Norton coefficient k = K^(-n)."""
+        """Norton coefficient k = K^(-n), evaluated once per material object."""
         return float(self.K ** (-self.n))
 
-    @property
+    @cached_property
     def Y0(self) -> float:
-        """Damage threshold Y0 = sigma_y^2 / (2E)."""
+        """Damage threshold Y0 = sigma_y^2 / (2E), evaluated once."""
         return float(self.sigma_y**2 / (2.0 * self.E))
+
+    @cached_property
+    def sqrt_gamma(self) -> float:
+        """Square root of gamma, evaluated once per material object."""
+        return float(np.sqrt(self.gamma))
 
 
 @dataclass
@@ -171,7 +177,7 @@ def isotropic_hardening_force(
 ) -> Tuple[float, float]:
     """Return transformed force R_bar and physical hardening force R."""
     R_bar = float(material.R_inf * r_bar)
-    eta = float(0.5 * np.sqrt(material.gamma) * r_bar)
+    eta = float(0.5 * material.sqrt_gamma * r_bar)
     R = float(material.R_inf * eta * (2.0 - eta))
     return R_bar, R
 
@@ -297,7 +303,7 @@ def state_rate(
     r_bar_rate = float(
         plastic_multiplier
         * (
-            np.sqrt(material.gamma)
+            material.sqrt_gamma
             - 0.5 * material.gamma * float(state[2])
         )
     )

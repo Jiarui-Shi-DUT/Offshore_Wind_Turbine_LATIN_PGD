@@ -35,6 +35,7 @@ from material.viscoplastic_damage_1d import MaterialParameters
 
 
 FloatArray = NDArray[np.float64]
+_FLOAT_EPS = float(np.finfo(float).eps)
 
 
 def _positive_part(value: float) -> float:
@@ -84,7 +85,7 @@ def isotropic_force_from_transformed_force(
 
     q = (
         transformed_force
-        * np.sqrt(material.gamma)
+        * material.sqrt_gamma
         / (2.0 * material.R_inf)
     )
     return float(material.R_inf * q * (2.0 - q))
@@ -132,7 +133,7 @@ def local_rates_from_forces(
         * _positive_part(yield_function) ** material.n
     )
 
-    if abs(relative_effective_stress) <= np.finfo(float).eps:
+    if abs(relative_effective_stress) <= _FLOAT_EPS:
         flow_direction = 0.0
     else:
         flow_direction = float(np.sign(relative_effective_stress))
@@ -149,7 +150,7 @@ def local_rates_from_forces(
     )
 
     r_bar_rate = plastic_multiplier * (
-        np.sqrt(material.gamma)
+        material.sqrt_gamma
         - (
             material.gamma
             * transformed_force
