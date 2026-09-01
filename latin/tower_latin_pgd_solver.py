@@ -649,7 +649,7 @@ def solve_tower_latin_pgd(
     saturation_stopping_tolerance: float = 1.0e-4,
     reduced_tolerance: float = 1.0e-4,
     search_regularization: float = 0.15,
-    fixed_point_tolerance: float = 1.0e-6,
+    fixed_point_tolerance: float = 1.0e-5,
     max_fixed_point_iterations: int = 30,
     minimum_spatial_norm: float = 1.0e-14,
     minimum_spatial_novelty: float = 1.0e-12,

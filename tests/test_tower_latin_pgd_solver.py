@@ -396,7 +396,7 @@ class TestTowerLatinPGDSolver(unittest.TestCase):
         ), patch(
             "latin.tower_latin_pgd_solver.enrich_tower_pgd_basis_once",
             return_value=enrichment,
-        ), patch(
+        ) as enrich_mock, patch(
             "latin.tower_latin_pgd_solver.build_unrelaxed_candidate",
             side_effect=[candidate_a, candidate_b],
         ) as build_mock, patch(
@@ -419,6 +419,10 @@ class TestTowerLatinPGDSolver(unittest.TestCase):
         self.assertEqual(result.basis.n_modes, 2)
         np.testing.assert_allclose(result.state.stress, trial_b.relaxed_state.stress)
 
+        self.assertAlmostEqual(
+            enrich_mock.call_args.kwargs["fixed_point_tolerance"],
+            1.0e-5,
+        )
         build_calls = build_mock.call_args_list
         self.assertIs(
             build_calls[0].kwargs["baseline_state"],
