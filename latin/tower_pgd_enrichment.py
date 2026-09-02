@@ -46,6 +46,15 @@ _VALID_SPATIAL_STRATEGIES = (
     _SPATIAL_STRATEGY_RESIDUAL_LS,
 )
 
+# OPT-6 calibration for the tower residual-LS fixed-point map.
+#
+# These controls are intentionally private and apply only to residual-LS.
+# The paper-Galerkin path remains unchanged. The acceleration is activated
+# only after the raw production map has entered a small monotone tail.
+_AITKEN_ACTIVATION_THRESHOLD = 1.0e-2
+_AITKEN_MONOTONE_WINDOW = 5
+_AITKEN_OMEGA_MIN = 1.0
+_AITKEN_OMEGA_MAX = 4.0
 
 class _CandidateFailure(RuntimeError):
     def __init__(self, reason: str) -> None:
@@ -355,6 +364,75 @@ def _inloop_orthogonalize_spatial(
     return work / norm
 
 
+
+def _align_spatial_sign(
+    reference: FloatArray,
+    candidate: FloatArray,
+    metric: MaterialPointMetric,
+) -> FloatArray:
+    """Resolve only the +/- PGD sign gauge against the previous iterate."""
+    aligned = np.asarray(candidate, dtype=np.float64)
+    if metric.inner_product(reference, aligned) < 0.0:
+        return -aligned
+    return aligned
+
+
+def _aitken_tail_ready(
+    raw_pair_history: list,
+    activation_threshold: float = _AITKEN_ACTIVATION_THRESHOLD,
+    monotone_window: int = _AITKEN_MONOTONE_WINDOW,
+) -> bool:
+    """Return True only inside the calibrated small monotone fixed-point tail."""
+    if len(raw_pair_history) < monotone_window:
+        return False
+    tail = np.asarray(raw_pair_history[-monotone_window:], dtype=np.float64)
+    if np.any(~np.isfinite(tail)):
+        return False
+    if tail[-1] > activation_threshold:
+        return False
+    return bool(np.all(tail[1:] < tail[:-1]))
+
+
+def _aitken_relaxation_factor(
+    previous_omega: float,
+    previous_residual: FloatArray,
+    current_residual: FloatArray,
+    metric: MaterialPointMetric,
+    omega_min: float = _AITKEN_OMEGA_MIN,
+    omega_max: float = _AITKEN_OMEGA_MAX,
+) -> float:
+    """Return safeguarded vector-Aitken omega in the material-point M metric."""
+    delta = (
+        np.asarray(current_residual, dtype=np.float64)
+        - np.asarray(previous_residual, dtype=np.float64)
+    )
+    denominator = metric.inner_product(delta, delta)
+    numerator = metric.inner_product(previous_residual, delta)
+    if (
+        not np.isfinite(denominator)
+        or denominator <= np.finfo(np.float64).eps
+        or not np.isfinite(numerator)
+    ):
+        return 1.0
+
+    omega = -float(previous_omega) * float(numerator) / float(denominator)
+    if not np.isfinite(omega):
+        return 1.0
+    return float(np.clip(omega, omega_min, omega_max))
+
+
+def _residual_ls_fixed_point_converged(
+    accelerated_change: float,
+    raw_map_change: float,
+    tolerance: float,
+) -> bool:
+    """Require both accelerated and raw-map changes to pass the tolerance."""
+    return bool(
+        accelerated_change <= tolerance
+        and raw_map_change <= tolerance
+    )
+
+
 def _raw_fixed_point(
     basis: PGDBasisTower,
     time: FloatArray,
@@ -384,6 +462,11 @@ def _raw_fixed_point(
     history = []
     converged = False
 
+    raw_pair_history = []
+    aitken_active = False
+    previous_spatial_residual = None
+    previous_omega = 1.0
+
     for _ in range(max_fixed_point_iterations):
         if spatial_strategy == _SPATIAL_STRATEGY_PAPER_GALERKIN:
             p, s = _spatial_solve(
@@ -396,9 +479,30 @@ def _raw_fixed_point(
                 operator,
                 minimum_spatial_norm,
             )
+            lam, rate = _temporal_solve(
+                p,
+                s,
+                time,
+                defect,
+                H_sigma,
+                metric,
+            )
+            candidate = PGDModeTower(
+                p,
+                s,
+                lam,
+                rate,
+                iteration_added,
+            )
+            chi = _pair_change(
+                current,
+                candidate,
+                time,
+                H_sigma,
+                metric,
+            )
+
         elif spatial_strategy == _SPATIAL_STRATEGY_RESIDUAL_LS:
-            # Lazy import keeps the existing paper-Galerkin path free from a
-            # mandatory SciPy import unless the residual-LS candidate is used.
             from latin.tower_residual_ls_spatial import (
                 solve_tower_residual_ls_spatial,
             )
@@ -414,7 +518,11 @@ def _raw_fixed_point(
                     equilibrium_operator=operator,
                     minimum_spatial_norm=minimum_spatial_norm,
                 )
-            except (ValueError, FloatingPointError, np.linalg.LinAlgError) as exc:
+            except (
+                ValueError,
+                FloatingPointError,
+                np.linalg.LinAlgError,
+            ) as exc:
                 raise _CandidateFailure(
                     "residual_ls_spatial_solver_failed"
                 ) from exc
@@ -424,26 +532,135 @@ def _raw_fixed_point(
                     "residual_ls_spatial_solver_not_converged"
                 )
 
-            p = _inloop_orthogonalize_spatial(
+            p_raw = _inloop_orthogonalize_spatial(
                 basis,
                 residual_ls.spatial_plastic_strain,
                 metric,
                 minimum_spatial_norm,
                 rcond,
             )
-            s = operator.apply_spatial(p).stress
+            p_raw = _align_spatial_sign(
+                current.spatial_plastic_strain,
+                p_raw,
+                metric,
+            )
+
+            raw_spatial_residual = (
+                p_raw - current.spatial_plastic_strain
+            )
+            raw_s = operator.apply_spatial(p_raw).stress
+            raw_lam, raw_rate = _temporal_solve(
+                p_raw,
+                raw_s,
+                time,
+                defect,
+                H_sigma,
+                metric,
+            )
+            raw_candidate = PGDModeTower(
+                p_raw,
+                raw_s,
+                raw_lam,
+                raw_rate,
+                iteration_added,
+            )
+            raw_chi = _pair_change(
+                current,
+                raw_candidate,
+                time,
+                H_sigma,
+                metric,
+            )
+            raw_pair_history.append(raw_chi)
+
+            if (
+                not aitken_active
+                and _aitken_tail_ready(raw_pair_history)
+            ):
+                aitken_active = True
+                previous_spatial_residual = None
+                previous_omega = 1.0
+
+            if not aitken_active:
+                candidate = raw_candidate
+                chi = raw_chi
+            else:
+                if previous_spatial_residual is None:
+                    omega = 1.0
+                else:
+                    omega = _aitken_relaxation_factor(
+                        previous_omega,
+                        previous_spatial_residual,
+                        raw_spatial_residual,
+                        metric,
+                    )
+
+                if omega == 1.0:
+                    candidate = raw_candidate
+                    chi = raw_chi
+                else:
+                    p_accelerated = (
+                        current.spatial_plastic_strain
+                        + omega * raw_spatial_residual
+                    )
+                    p_accelerated = _inloop_orthogonalize_spatial(
+                        basis,
+                        p_accelerated,
+                        metric,
+                        minimum_spatial_norm,
+                        rcond,
+                    )
+                    s_accelerated = operator.apply_spatial(
+                        p_accelerated
+                    ).stress
+                    (
+                        lam_accelerated,
+                        rate_accelerated,
+                    ) = _temporal_solve(
+                        p_accelerated,
+                        s_accelerated,
+                        time,
+                        defect,
+                        H_sigma,
+                        metric,
+                    )
+                    candidate = PGDModeTower(
+                        p_accelerated,
+                        s_accelerated,
+                        lam_accelerated,
+                        rate_accelerated,
+                        iteration_added,
+                    )
+                    chi = _pair_change(
+                        current,
+                        candidate,
+                        time,
+                        H_sigma,
+                        metric,
+                    )
+
+                previous_spatial_residual = (
+                    raw_spatial_residual.copy()
+                )
+                previous_omega = float(omega)
+
         else:
-            # Public validation should make this unreachable.
             raise ValueError(
                 f"Unknown spatial_strategy: {spatial_strategy!r}."
             )
 
-        lam, rate = _temporal_solve(p, s, time, defect, H_sigma, metric)
-        candidate = PGDModeTower(p, s, lam, rate, iteration_added)
-        chi = _pair_change(current, candidate, time, H_sigma, metric)
         history.append(chi)
         current = candidate
-        if chi <= fixed_point_tolerance:
+
+        if spatial_strategy == _SPATIAL_STRATEGY_RESIDUAL_LS:
+            if _residual_ls_fixed_point_converged(
+                chi,
+                raw_chi,
+                fixed_point_tolerance,
+            ):
+                converged = True
+                break
+        elif chi <= fixed_point_tolerance:
             converged = True
             break
 
