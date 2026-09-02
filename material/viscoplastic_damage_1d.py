@@ -131,13 +131,13 @@ def safe_damage(
     material: MaterialParameters,
 ) -> float:
     """Clamp damage to the numerically admissible interval."""
-    return float(
-        np.clip(
-            damage,
-            0.0,
-            material.damage_upper_bound,
-        )
-    )
+    value = float(damage)
+    upper_bound = float(material.damage_upper_bound)
+    if value < 0.0:
+        return 0.0
+    if value > upper_bound:
+        return upper_bound
+    return value
 
 
 def prescribed_strain(
