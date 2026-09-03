@@ -5,6 +5,7 @@
 """
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from functools import cached_property
 from typing import Callable, Optional, Tuple, cast
@@ -502,45 +503,55 @@ def rk4_step(
     )
 
     sixth_dt = dt / 6.0
-    new_state = np.array(
-        [
-            eps_p0 + sixth_dt * (
-                k1_eps_p
-                + 2.0 * k2_eps_p
-                + 2.0 * k3_eps_p
-                + k4_eps_p
-            ),
-            alpha0 + sixth_dt * (
-                k1_alpha
-                + 2.0 * k2_alpha
-                + 2.0 * k3_alpha
-                + k4_alpha
-            ),
-            r_bar0 + sixth_dt * (
-                k1_r_bar
-                + 2.0 * k2_r_bar
-                + 2.0 * k3_r_bar
-                + k4_r_bar
-            ),
-            damage0 + sixth_dt * (
-                k1_damage
-                + 2.0 * k2_damage
-                + 2.0 * k3_damage
-                + k4_damage
-            ),
-        ],
-        dtype=np.float64,
-    )
 
-    new_state[3] = safe_damage(
-        float(new_state[3]),
+    new_eps_p = eps_p0 + sixth_dt * (
+        k1_eps_p
+        + 2.0 * k2_eps_p
+        + 2.0 * k3_eps_p
+        + k4_eps_p
+    )
+    new_alpha = alpha0 + sixth_dt * (
+        k1_alpha
+        + 2.0 * k2_alpha
+        + 2.0 * k3_alpha
+        + k4_alpha
+    )
+    new_r_bar = r_bar0 + sixth_dt * (
+        k1_r_bar
+        + 2.0 * k2_r_bar
+        + 2.0 * k3_r_bar
+        + k4_r_bar
+    )
+    new_damage = damage0 + sixth_dt * (
+        k1_damage
+        + 2.0 * k2_damage
+        + 2.0 * k3_damage
+        + k4_damage
+    )
+    new_damage = safe_damage(
+        new_damage,
         material,
     )
 
-    if not np.all(np.isfinite(new_state)):
+    if not (
+        math.isfinite(new_eps_p)
+        and math.isfinite(new_alpha)
+        and math.isfinite(new_r_bar)
+        and math.isfinite(new_damage)
+    ):
         raise FloatingPointError(
             "Non-finite state encountered during RK4 integration."
         )
+
+    new_state = np.array(
+        [
+            new_eps_p,
+            new_alpha,
+            new_r_bar,
+            new_damage,
+        ],
+        dtype=np.float64,
+    )
 
     return new_state
 
