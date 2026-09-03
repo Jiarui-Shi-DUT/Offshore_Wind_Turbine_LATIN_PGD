@@ -125,24 +125,9 @@ $$1\text{ 次真实响应积分} + 4\text{ 次中心差分切线扰动积分}$$
 
 FOM-OPT2 保持经典 RK4：
 
-$$
-\mathbf z_{n+1}
-=
-\mathbf z_n
-+
-\frac{\Delta t}{6}
-\left(
-\mathbf k_1
-+
-2\mathbf k_2
-+
-2\mathbf k_3
-+
-\mathbf k_4
-\right)
-$$
+$$ \vec{z}_{n+1} = \vec{z}_n + \frac{\Delta t}{6} \left( \vec{k}_1 + 2\vec{k}_2 + 2\vec{k}_3 + \vec{k}_4 \right) $$
 
-不变，但将 $\mathbf z$ 的四个分量拆为标量计算，只在最终阶段构造一次长度为 4 的 `np.array`。
+不变，但将 $\vec{z}$ 的四个分量拆为标量计算，只在最终阶段构造一次长度为 4 的 `np.array`。
 
 因此，优化的本质是减少：
 
@@ -284,11 +269,7 @@ $$
 
 比较，可得到约：
 
-$$
-\frac{292.869827}{30.479516}
-\approx
-9.61
-$$
+$$ \frac{292.869827}{30.479516} \approx 9.61 $$
 
 倍的实现层加速。
 
@@ -296,10 +277,7 @@ $$
 
 因此，不能再直接使用：
 
-$$
-\frac{t_{\mathrm{FOM,old}}}
-     {t_{\mathrm{LATIN,opt}}}
-$$
+$$ \frac{t_{\mathrm{FOM,old}}} {t_{\mathrm{LATIN,opt}}} $$
 
 作为 LATIN-PGD 的算法加速比。
 
@@ -336,12 +314,7 @@ FOM-OPT1 与 FOM-OPT2 的结果共同表明：
 
 当前中心差分切线每次截面 trial 需要四次额外完整材料积分，使总积分次数满足：
 
-$$
-N_{\mathrm{fiber\ integration}}
-=
-5
-N_{\mathrm{section\ trial}}
-$$
+$$ N_{\mathrm{fiber\ integration}} = 5 N_{\mathrm{section\ trial}} $$
 
 其中约 80% 的材料积分用于数值切线扰动。
 
@@ -368,30 +341,13 @@ FOM-OPT2 之后不应立即继续修改中心差分数值切线。
 
 最终建议分别报告：
 
-$$
-S_{\mathrm{FOM,impl}}
-=
-\frac{t_{\mathrm{FOM,old}}}
-     {t_{\mathrm{FOM,opt}}}
-$$
+$$ S_{\mathrm{FOM,impl}} = \frac{t_{\mathrm{FOM,old}}} {t_{\mathrm{FOM,opt}}} $$
 
-$$
-S_{\mathrm{LATIN,impl}}
-=
-\frac{t_{\mathrm{LATIN,old}}}
-     {t_{\mathrm{LATIN,opt}}}
-$$
+$$ S_{\mathrm{LATIN,impl}} = \frac{t_{\mathrm{LATIN,old}}} {t_{\mathrm{LATIN,opt}}} $$
 
 以及真正用于方法比较的：
 
-$$
-S_{\mathrm{method}}
-=
-S_{\mathrm{fair}}
-=
-\frac{t_{\mathrm{FOM,opt}}}
-     {t_{\mathrm{LATIN,opt}}}
-$$
+$$ S_{\mathrm{method}} = S_{\mathrm{fair}} = \frac{t_{\mathrm{FOM,opt}}} {t_{\mathrm{LATIN,opt}}} $$
 
 ---
 
