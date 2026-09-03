@@ -33,8 +33,8 @@ from fem.fiber_section import AnnularFiberSection, compute_fiber_strains
 from material.viscoplastic_damage_1d import (
     MaterialParameters,
     MaterialState,
-    evaluate_state,
     rk4_step,
+    stress_from_state,
 )
 
 
@@ -360,11 +360,12 @@ class ViscoplasticDamageFiberSection:
                 material=self.material,
             )
             states[fiber_index] = state
-            stresses[fiber_index] = evaluate_state(
+            stresses[fiber_index] = stress_from_state(
                 total_strain=end_value,
-                state=state,
+                plastic_strain=float(state[0]),
+                damage=float(state[3]),
                 material=self.material,
-            )[0]
+            )
 
         return strain_end, stresses, states
 
@@ -470,11 +471,12 @@ class ViscoplasticDamageFiberSection:
             dtype=np.float64,
         )
         for fiber_index in range(self.section.n_fibers):
-            stresses[fiber_index] = evaluate_state(
+            stresses[fiber_index] = stress_from_state(
                 total_strain=float(strains[fiber_index]),
-                state=states[fiber_index],
+                plastic_strain=float(states[fiber_index, 0]),
+                damage=float(states[fiber_index, 3]),
                 material=self.material,
-            )[0]
+            )
         resultants = self._resultants(stresses)
         return ViscoplasticSectionResponse(
             time=time,
