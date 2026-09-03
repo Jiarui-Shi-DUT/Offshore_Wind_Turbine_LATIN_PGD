@@ -16,6 +16,8 @@ from numpy.typing import NDArray
 FloatArray = NDArray[np.float64]
 StrainFunction = Callable[[float], float]
 
+_FLOAT_EPS = float(np.finfo(float).eps)
+
 
 @dataclass(frozen=True)
 class MaterialParameters:
@@ -258,6 +260,113 @@ def evaluate_state(
     )
 
 
+def _scalar_state_rate_components(
+    total_strain: float,
+    plastic_strain: float,
+    alpha: float,
+    r_bar: float,
+    damage: float,
+    material: MaterialParameters,
+) -> Tuple[float, float, float, float]:
+    # Scalar form of the same constitutive rate equations.
+    damage = safe_damage(damage, material)
+
+    elastic_strain = float(total_strain - plastic_strain)
+    if elastic_strain >= 0.0:
+        effective_modulus = material.E * (1.0 - damage)
+    else:
+        effective_modulus = material.E * (
+            1.0 - material.h * damage
+        )
+    stress = float(effective_modulus * elastic_strain)
+
+    beta = float(material.C * alpha)
+    eta = float(0.5 * material.sqrt_gamma * r_bar)
+    hardening_force = float(
+        material.R_inf * eta * (2.0 - eta)
+    )
+
+    effective_relative_stress = float(
+        stress / (1.0 - damage) - beta
+    )
+    yield_function = float(
+        abs(effective_relative_stress)
+        + material.a * beta**2 / (2.0 * material.C)
+        - hardening_force
+        - material.sigma_y
+    )
+
+    if stress >= 0.0:
+        denominator = (
+            2.0 * material.E * (1.0 - damage) ** 2
+        )
+        energy_release_rate = float(
+            stress**2 / denominator
+        )
+    else:
+        denominator = (
+            2.0
+            * material.E
+            * (1.0 - material.h * damage) ** 2
+        )
+        energy_release_rate = float(
+            material.h * stress**2 / denominator
+        )
+
+    positive_yield = (
+        yield_function if yield_function > 0.0 else 0.0
+    )
+    plastic_multiplier = float(
+        material.k_viscoplastic
+        * positive_yield ** material.n
+    )
+
+    if abs(effective_relative_stress) <= _FLOAT_EPS:
+        flow_direction = 0.0
+    elif effective_relative_stress > 0.0:
+        flow_direction = 1.0
+    else:
+        flow_direction = -1.0
+
+    plastic_strain_rate = float(
+        plastic_multiplier
+        * flow_direction
+        / (1.0 - damage)
+    )
+
+    alpha_rate = float(
+        plastic_multiplier
+        * (
+            flow_direction
+            - material.a * beta / material.C
+        )
+    )
+
+    r_bar_rate = float(
+        plastic_multiplier
+        * (
+            material.sqrt_gamma
+            - 0.5 * material.gamma * r_bar
+        )
+    )
+
+    damage_drive = energy_release_rate - material.Y0
+    positive_damage_drive = (
+        damage_drive if damage_drive > 0.0 else 0.0
+    )
+    damage_rate = float(
+        material.k_damage
+        * positive_damage_drive ** material.n_damage
+    )
+
+    return (
+        plastic_strain_rate,
+        alpha_rate,
+        r_bar_rate,
+        damage_rate,
+    )
+
+
 def state_rate(
     total_strain: float,
     state: FloatArray,
@@ -333,36 +442,100 @@ def rk4_step(
     strain_function: StrainFunction,
     material: MaterialParameters,
 ) -> FloatArray:
-    """Advance one fixed time step with the classical RK4 scheme."""
+    # Classical RK4 with scalar state components and identical equations.
     if time_step <= 0.0:
         raise ValueError("time_step must be positive.")
 
-    k1 = state_rate(
-        strain_function(time),
-        state,
-        material,
-    )
-    k2 = state_rate(
-        strain_function(time + 0.5 * time_step),
-        state + 0.5 * time_step * k1,
-        material,
-    )
-    k3 = state_rate(
-        strain_function(time + 0.5 * time_step),
-        state + 0.5 * time_step * k2,
-        material,
-    )
-    k4 = state_rate(
-        strain_function(time + time_step),
-        state + time_step * k3,
-        material,
+    dt = float(time_step)
+    half_dt = 0.5 * dt
+
+    eps_p0 = float(state[0])
+    alpha0 = float(state[1])
+    r_bar0 = float(state[2])
+    damage0 = float(state[3])
+
+    strain1 = strain_function(time)
+    k1_eps_p, k1_alpha, k1_r_bar, k1_damage = (
+        _scalar_state_rate_components(
+            strain1,
+            eps_p0,
+            alpha0,
+            r_bar0,
+            damage0,
+            material,
+        )
     )
 
-    new_state = state + (time_step / 6.0) * (
-        k1 + 2.0 * k2 + 2.0 * k3 + k4
+    strain2 = strain_function(time + half_dt)
+    k2_eps_p, k2_alpha, k2_r_bar, k2_damage = (
+        _scalar_state_rate_components(
+            strain2,
+            eps_p0 + half_dt * k1_eps_p,
+            alpha0 + half_dt * k1_alpha,
+            r_bar0 + half_dt * k1_r_bar,
+            damage0 + half_dt * k1_damage,
+            material,
+        )
     )
-    new_state = np.asarray(new_state, dtype=np.float64)
-    new_state[3] = safe_damage(float(new_state[3]), material)
+
+    k3_eps_p, k3_alpha, k3_r_bar, k3_damage = (
+        _scalar_state_rate_components(
+            strain2,
+            eps_p0 + half_dt * k2_eps_p,
+            alpha0 + half_dt * k2_alpha,
+            r_bar0 + half_dt * k2_r_bar,
+            damage0 + half_dt * k2_damage,
+            material,
+        )
+    )
+
+    strain4 = strain_function(time + dt)
+    k4_eps_p, k4_alpha, k4_r_bar, k4_damage = (
+        _scalar_state_rate_components(
+            strain4,
+            eps_p0 + dt * k3_eps_p,
+            alpha0 + dt * k3_alpha,
+            r_bar0 + dt * k3_r_bar,
+            damage0 + dt * k3_damage,
+            material,
+        )
+    )
+
+    sixth_dt = dt / 6.0
+    new_state = np.array(
+        [
+            eps_p0 + sixth_dt * (
+                k1_eps_p
+                + 2.0 * k2_eps_p
+                + 2.0 * k3_eps_p
+                + k4_eps_p
+            ),
+            alpha0 + sixth_dt * (
+                k1_alpha
+                + 2.0 * k2_alpha
+                + 2.0 * k3_alpha
+                + k4_alpha
+            ),
+            r_bar0 + sixth_dt * (
+                k1_r_bar
+                + 2.0 * k2_r_bar
+                + 2.0 * k3_r_bar
+                + k4_r_bar
+            ),
+            damage0 + sixth_dt * (
+                k1_damage
+                + 2.0 * k2_damage
+                + 2.0 * k3_damage
+                + k4_damage
+            ),
+        ],
+        dtype=np.float64,
+    )
+
+    new_state[3] = safe_damage(
+        float(new_state[3]),
+        material,
+    )
 
     if not np.all(np.isfinite(new_state)):
         raise FloatingPointError(
